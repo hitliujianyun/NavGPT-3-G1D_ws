@@ -1,0 +1,20 @@
+# 模型权重与数据集（在 GPU 服务器上下载）
+models/*
+!models/.gitkeep
+data/*
+!data/.gitkeep
+
+# 运行日志
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

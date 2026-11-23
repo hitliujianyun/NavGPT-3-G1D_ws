@@ -1,0 +1,11 @@
+* text=auto
+
+# 在 Linux（RTX 5090 主机、机器人 PC2）上运行的文件始终使用 LF
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+
+*.pdf binary
+*.png binary
+*.jpg binary
