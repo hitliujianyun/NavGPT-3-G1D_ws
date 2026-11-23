@@ -21,8 +21,14 @@ import time
 from pathlib import Path
 
 
+MUST_BE_LF = (".sh", ".service", ".env", ".py", ".yaml", ".xml")
+
+
 def git(args, cwd: Path) -> bytes:
-    return subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True).stdout
+    # Archiving a subtree does not see the root .gitattributes, so on Windows core.autocrlf would
+    # turn every file into CRLF; with conversion off the archive carries the stored (LF) blobs.
+    cmd = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", *args]
+    return subprocess.run(cmd, cwd=str(cwd), check=True, capture_output=True).stdout
 
 
 def main() -> int:
@@ -49,20 +55,26 @@ def main() -> int:
     out_dir = Path(args.out) if args.out else repo / "dist"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "navgpt_g1d-{}.tar.gz".format(commit)
-    count = 0
+    count, crlf = 0, []
     with tarfile.open(out, "w:gz") as dst:
         for blob in parts:
             with tarfile.open(fileobj=io.BytesIO(blob), mode="r:") as src:
                 for member in src.getmembers():
+                    data = src.extractfile(member).read() if member.isfile() else None
+                    if data is not None and member.name.endswith(MUST_BE_LF) and b"\r\n" in data:
+                        crlf.append(member.name)
                     if member.isfile() and member.name.endswith(".sh"):
                         member.mode |= 0o755
                     member.uname = member.gname = "unitree"
-                    dst.addfile(member, src.extractfile(member) if member.isfile() else None)
+                    dst.addfile(member, io.BytesIO(data) if data is not None else None)
                     count += member.isfile()
         text = ("\n".join(versions) + "\n").encode()
         info = tarfile.TarInfo("navgpt_g1d/VERSION")
         info.size, info.mtime, info.mode = len(text), int(time.time()), 0o644
         dst.addfile(info, io.BytesIO(text))
+    if crlf:
+        out.unlink()
+        raise SystemExit("CRLF line endings in {} file(s), e.g. {}; fix .gitattributes and recommit".format(len(crlf), crlf[:3]))
     print("{} ({} files, {:.1f} MB)".format(out, count, out.stat().st_size / 1e6))
     print("\n".join("  " + v for v in versions))
     return 0
