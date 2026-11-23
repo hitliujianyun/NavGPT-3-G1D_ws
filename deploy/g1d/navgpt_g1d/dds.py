@@ -34,6 +34,48 @@ def init_dds(domain_id: int = 0, interface: Optional[str] = None, interface_ip: 
         channel.ChannelFactoryInitialize(domain_id, interface)
 
 
+def find_writers(topic: str, domain_id: int = 0, wait_s: float = 1.5) -> list:
+    """Participant keys of the DDS writers on ``topic`` seen within ``wait_s`` (builtin topics)."""
+    from cyclonedds.builtin import BuiltinDataReader, BuiltinTopicDcpsPublication
+    from cyclonedds.domain import DomainParticipant
+
+    participant = DomainParticipant(domain_id)
+    reader = BuiltinDataReader(participant, BuiltinTopicDcpsPublication)
+    found = {}
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        for sample in reader.take(N=256):
+            if getattr(sample, "topic_name", None) == topic:
+                found[str(sample.key)] = str(sample.participant_key)
+        time.sleep(0.05)
+    del reader
+    return sorted(set(found.values()))
+
+
+class GuardStateSubscriber:
+    """rt/nav/guard_state (std_msgs/String JSON) into a supervisor.GuardState."""
+
+    def __init__(self, state, topic: str = "rt/nav/guard_state"):
+        from unitree_sdk2py.core.channel import ChannelSubscriber
+        from unitree_sdk2py.idl.std_msgs.msg.dds_ import String_
+
+        self.state = state
+        self._sub = ChannelSubscriber(topic, String_)
+        self._sub.Init(lambda m: state.update(m.data), 4)
+
+
+class JoystickSubscriber:
+    """rt/wirelesscontroller (unitree_go/WirelessController) into a supervisor.JoystickMonitor."""
+
+    def __init__(self, monitor, topic: str = "rt/wirelesscontroller"):
+        from unitree_sdk2py.core.channel import ChannelSubscriber
+        from unitree_sdk2py.idl.unitree_go.msg.dds_ import WirelessController_
+
+        self.monitor = monitor
+        self._sub = ChannelSubscriber(topic, WirelessController_)
+        self._sub.Init(lambda m: monitor.update(m.lx, m.ly, m.rx, m.ry), 4)
+
+
 class RateMeter:
     def __init__(self, window: int = 20):
         self._times: list = []

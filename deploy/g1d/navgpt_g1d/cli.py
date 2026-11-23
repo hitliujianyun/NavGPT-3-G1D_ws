@@ -3,8 +3,9 @@
     run     one VLN episode on the robot
     serve   robot control API (start/stop episodes over HTTP)
     sim     one episode against the simulated base and an oracle VLA
-    check   sensor rates, camera, and VLA reachability
-    smoke   short /cmd_vel_no_limit motions to verify signs against odometry
+    check   sensor rates, camera, guard / remote / chassis events, and VLA reachability
+    smoke   short motions to verify signs against odometry
+    record  teleoperated demonstrations for navgpt_sft (the remote drives)
     report  smoothness and latency metrics of a logged episode
 """
 
@@ -14,28 +15,50 @@ import argparse
 import dataclasses
 import json
 import math
+import shutil
+import signal
 import sys
+import threading
 import time
 
 from .config import load_config
 from .geometry import wrap_angle, world_to_body
 
 
+def _sigterm_as_interrupt() -> None:
+    """systemd stops services with SIGTERM: take the same safe path as Ctrl-C."""
+    def handler(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, handler)
+    except ValueError:      # not the main thread
+        pass
+
+
 def _print(obj) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
 
 
+def _robot(cfg, dry_run: bool, with_camera: bool = True):
+    from .robot import G1DRobot, PreflightError
+
+    try:
+        return G1DRobot(cfg, dry_run=dry_run, with_camera=with_camera)
+    except PreflightError as exc:
+        raise SystemExit("[navgpt_g1d] preflight failed: {}".format(exc))
+
+
 def _robot_and_vla(cfg, dry_run: bool):
-    from .robot import G1DRobot
     from .vla_client import VlaClient
 
-    return G1DRobot(cfg, dry_run=dry_run), VlaClient(cfg.vla.url, cfg.vla.timeout_s, cfg.vla.jpeg_quality)
+    return _robot(cfg, dry_run), VlaClient(cfg.vla.url, cfg.vla.timeout_s, cfg.vla.jpeg_quality)
 
 
 def cmd_run(args) -> int:
     from .episode import EpisodeRunner
     from .report import analyse
 
+    _sigterm_as_interrupt()
     cfg = load_config(args.config)
     robot, vla = _robot_and_vla(cfg, args.dry_run)
     try:
@@ -57,6 +80,7 @@ def cmd_serve(args) -> int:
     from .api import serve
     from .episode import EpisodeRunner
 
+    _sigterm_as_interrupt()
     cfg = load_config(args.config)
     if args.sim:
         from .sim import ROUTES, RouteOracleVLA, SimRobot, SimWorld
@@ -99,9 +123,18 @@ def cmd_sim(args) -> int:
 
 
 def cmd_check(args) -> int:
+    from .dds import find_writers
+
     cfg = load_config(args.config)
     robot, vla = _robot_and_vla(cfg, dry_run=True)
     try:
+        print("output mode: {}; camera: {}".format(cfg.base.output, robot.camera_info))
+        try:
+            writers = find_writers(cfg.topics.cmd_vel, cfg.dds.domain_id, 1.5)
+            print("writers on {}: {}".format(cfg.topics.cmd_vel, len(writers)),
+                  "(expected 0 in direct mode, 1 = the guard in guard mode)")
+        except Exception as exc:  # noqa: BLE001
+            print("writer discovery unavailable: {!r}".format(exc))
         t0 = time.monotonic()
         try:
             info = vla.info()
@@ -124,7 +157,7 @@ def cmd_check(args) -> int:
 def cmd_smoke(args) -> int:
     """Drive forward and turn left briefly; compare with odometry to verify signs."""
     cfg = load_config(args.config)
-    robot, _ = _robot_and_vla(cfg, dry_run=False)
+    robot = _robot(cfg, dry_run=False, with_camera=False)
     try:
         deadline = time.monotonic() + 3.0
         while robot.odom.latest() is None and time.monotonic() < deadline:
@@ -175,6 +208,57 @@ def _advise(label: str, seen: str, dx: float, dyaw: float) -> None:
             print("-> no rotation: check the base mode")
 
 
+def cmd_record(args) -> int:
+    """Interactive: one episode per instruction; the remote drives, nothing is commanded."""
+    from .record import EpisodeRecorder
+
+    _sigterm_as_interrupt()
+    cfg = load_config(args.config)
+    rec_cfg = cfg.record
+    out_dir = args.out or rec_cfg.out_dir
+    robot = _robot(cfg, dry_run=True)
+    try:
+        deadline = time.monotonic() + 3.0
+        while (robot.odom.latest() is None or robot.frame() is None) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if robot.odom.latest() is None or robot.frame() is None:
+            print("need odometry ({}) and camera frames ({})".format(cfg.topics.odom, robot.camera_info))
+            return 1
+        print("recording to {}/{} at {:.1f} Hz; drive with the remote".format(out_dir, rec_cfg.manifest, rec_cfg.rate_hz))
+        kept = 0
+        while True:
+            text = args.instruction or input("\ninstruction (English; several separated by '|'; empty = quit): ")
+            if not text.strip():
+                break
+            if args.duration is None:
+                input("put the robot at the start, press Enter to record...")
+            rec = EpisodeRecorder(robot, out_dir, cfg.camera.latency_s, rec_cfg.rate_hz, rec_cfg.jpeg_quality)
+            stop = threading.Event()
+            if args.duration is None:
+                threading.Thread(target=lambda: (input("recording... press Enter at the goal\n"), stop.set()),
+                                 daemon=True).start()
+                rec.run(stop.is_set)
+            else:
+                rec.run(stop.is_set, max_s=args.duration)
+            print("{} frames, {:.2f} m, {} skipped".format(len(rec.frames), rec.path_length(), rec.skipped))
+            keep = args.instruction is not None or input("keep this episode? [Y/n] ").strip().lower() != "n"
+            line = rec.finish(text.split("|"), rec_cfg.manifest, rate_hz=rec_cfg.rate_hz) if keep else None
+            if line is None:
+                shutil.rmtree(rec.dir, ignore_errors=True)
+                print("discarded")
+            else:
+                kept += 1
+                print("saved {}".format(line["episode_id"]))
+            if args.instruction:
+                break
+        print("{} episode(s) kept in {}/{}".format(kept, out_dir, rec_cfg.manifest))
+        return 0
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        robot.close()
+
+
 def cmd_report(args) -> int:
     from .report import analyse
 
@@ -220,6 +304,13 @@ def main(argv=None) -> int:
     p.add_argument("--turn-rate", type=float, default=0.3)
     p.add_argument("--seconds", type=float, default=1.5)
     p.set_defaults(fn=cmd_smoke)
+
+    p = sub.add_parser("record", help="teleoperated demonstrations for navgpt_sft")
+    p.add_argument("--config", required=True)
+    p.add_argument("--out", default=None, help="dataset directory (default: record.out_dir)")
+    p.add_argument("--instruction", default=None, help="record a single episode with this instruction")
+    p.add_argument("--duration", type=float, default=None, help="seconds per episode instead of Enter")
+    p.set_defaults(fn=cmd_record)
 
     p = sub.add_parser("report", help="metrics of a logged episode")
     p.add_argument("log_dir")

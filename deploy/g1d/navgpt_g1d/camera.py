@@ -17,6 +17,49 @@ from typing import Optional, Tuple
 import numpy as np
 
 
+def camera_entry(config: dict, name: str = "head_camera") -> Tuple[int, Optional[bool]]:
+    """(ZMQ colour port, binocular) of camera ``name`` in a teleimager config reply.
+
+    Current teleimager nests cameras under "camera" with ``color_zmq_port``;
+    older servers (and the PC2 image's tv environment) answer flat with ``zmq_port``.
+    """
+    cameras = config.get("camera") if isinstance(config.get("camera"), dict) else config
+    entry = cameras.get(name) or {}
+    port = entry.get("color_zmq_port") or entry.get("zmq_port") or config.get("camera_port") or config.get("port")
+    if not port:
+        raise ValueError("teleimager config has no ZMQ port for {!r}; cameras: {}".format(name, sorted(cameras)))
+    binocular = entry.get("binocular")
+    if binocular is None and entry.get("image_shape"):
+        h, w = entry["image_shape"][:2]
+        binocular = w >= 1.8 * h
+    return int(port), binocular
+
+
+def request_camera_config(host: str, request_port: int = 60000, timeout_ms: int = 2000) -> dict:
+    """teleimager's REQ/REP config query ("GET_DATA")."""
+    import zmq
+
+    sock = zmq.Context.instance().socket(zmq.REQ)
+    sock.setsockopt(zmq.LINGER, 0)
+    try:
+        sock.connect("tcp://{}:{}".format(host, request_port))
+        sock.send(b"GET_DATA")
+        if not sock.poll(timeout_ms):
+            raise TimeoutError("no teleimager config reply from {}:{}".format(host, request_port))
+        return sock.recv_json()
+    finally:
+        sock.close()
+
+
+def resolve_camera(host: str, port: Optional[int], binocular: Optional[bool], request_port: int = 60000,
+                   name: str = "head_camera") -> Tuple[int, bool]:
+    """Configured values win; missing ones come from the teleimager server."""
+    if port and binocular is not None:
+        return int(port), bool(binocular)
+    found_port, found_bino = camera_entry(request_camera_config(host, request_port), name)
+    return int(port or found_port), bool(binocular if binocular is not None else (found_bino if found_bino is not None else True))
+
+
 class HeadCamera:
     def __init__(self, host: str = "192.168.123.164", port: int = 55555,
                  binocular: bool = True, eye: str = "left", out_size: int = 400,

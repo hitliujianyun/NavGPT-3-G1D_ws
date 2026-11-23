@@ -1,0 +1,19 @@
+# Day-1 bring-up: navgpt_g1d runs on the RTX 5090 host, cabled into the robot LAN at
+# 192.168.123.222 (scripts/host_quickstart.sh). Only keys that differ from the defaults
+# (config/g1d.yaml documents all of them).
+
+dds:
+  interface_ip: 192.168.123.222    # the host NIC on the robot LAN; DDS stays off Wi-Fi
+
+vla:
+  url: http://127.0.0.1:8100       # serve_vla.py on this host
+
+base:
+  output: direct                   # g1d_ws guard running on the robot: output guard
+  # cmd_x_sign / cmd_yaw_sign / odom_yaw_sign: copy from your verified backend, confirm with `smoke`
+
+camera:
+  host: 192.168.123.164            # teleimager on PC2; port discovered over 60000
+
+episode:
+  log_dir: logs/host_wired

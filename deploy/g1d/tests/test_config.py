@@ -16,8 +16,20 @@ class ConfigTest(unittest.TestCase):
     def test_defaults_without_file(self):
         self.assertEqual(load_config(None).base.publish_hz, 30.0)
 
+    def test_host_wired_overlay(self):
+        cfg = load_config(CONFIG.parent / "host_wired.yaml")
+        self.assertEqual(cfg.dds.interface_ip, "192.168.123.222")
+        self.assertEqual(cfg.vla.url, "http://127.0.0.1:8100")
+        self.assertEqual(cfg.tracker, load_config().tracker, "unlisted sections keep their defaults")
+
+    def test_new_defaults(self):
+        cfg = load_config(CONFIG)
+        self.assertEqual(cfg.base.output, "direct")
+        self.assertIsNone(cfg.camera.port, "the camera port is discovered from teleimager")
+        self.assertEqual(cfg.supervisor.estop_events, ("BUMPER_TRIGGERED", "CLIFF_DETECTED"))
+
     def test_unknown_keys_rejected(self):
-        for text in ("tracker:\n  vmax: 0.3\n", "trackr:\n  v_max: 0.3\n"):
+        for text in ("tracker:\n  vmax: 0.3\n", "trackr:\n  v_max: 0.3\n", "base:\n  output: ros\n"):
             with tempfile.TemporaryDirectory() as d:
                 path = Path(d) / "c.yaml"
                 path.write_text(text, encoding="utf-8")

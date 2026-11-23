@@ -32,7 +32,8 @@ from .safety import ScanSafety
 
 @dataclass
 class EpisodeResult:
-    status: str               # arrived | stopped | timeout | stuck | odom_lost | error
+    status: str               # arrived | stopped | timeout | stuck | blocked | odom_lost | manual_override
+                              # | estop | guard_lost | error
     reason: str
     instruction: str
     duration_s: float
@@ -144,9 +145,15 @@ class EpisodeRunner:
         status, reason = "error", ""
         distance, last_pose = 0.0, None
         worker = None
+        zero_hold = robot.release_zero_hold() if hasattr(robot, "release_zero_hold") else cfg.base.zero_hold_s
+        supervise = getattr(robot, "supervise", None)
         try:
             if not self._wait_for_odom(t0 + 3.0):
                 raise RuntimeError("no odometry on {}".format(cfg.topics.odom))
+            if supervise is not None:
+                sup = supervise(time.monotonic(), -math.inf)
+                if sup.abort:
+                    raise RuntimeError("cannot start: {} ({})".format(sup.abort_status, sup.abort_reason))
             self.vla.reset()
             robot.cmd.activate()
             grant = authority.grant("vla_rollout")
@@ -160,6 +167,7 @@ class EpisodeRunner:
             clear_since = None
             motion_ref = None
             resumed_at_reply = None
+            blocked_since = None
             while True:
                 now = time.monotonic()
                 dt = min(max(now - t_last, 0.2 * period), 3.0 * period)
@@ -183,6 +191,22 @@ class EpisodeRunner:
                 if last_pose is not None:
                     distance += math.hypot(pose[0] - last_pose[0], pose[1] - last_pose[1])
                 last_pose = pose
+
+                sup = supervise(now, t0) if supervise is not None else None
+                if sup is not None and sup.abort:
+                    status, reason = sup.abort_status, sup.abort_reason
+                    if status == "manual_override":
+                        zero_hold = 0.0                 # hand the base to the remote at once
+                    log.write("supervisor_abort", status=status, reason=reason)
+                    break
+                if sup is not None and sup.blocked:
+                    blocked_since = blocked_since if blocked_since is not None else now
+                    if now - blocked_since > cfg.supervisor.guard_block_timeout_s:
+                        status, reason = "blocked", "guard held the robot back for {:.0f} s ({})".format(
+                            now - blocked_since, sup.blocked)
+                        break
+                else:
+                    blocked_since = None
 
                 verdict = safety.check(robot.scan(), now, nav.tracker.v, nav.tracker.w)
                 if verdict.stop:
@@ -226,6 +250,8 @@ class EpisodeRunner:
                     phase = "protective_stop"
                 elif resumed_at_reply is not None:
                     phase = "resuming"
+                elif blocked_since is not None:
+                    phase = "guard_blocked"
                 elif verdict.v_cap is not None:
                     phase = "obstacle_slow"
                 else:
@@ -233,7 +259,10 @@ class EpisodeRunner:
                 log.write("cmd", v=round(v, 5), w=round(w, 5), dt=round(dt, 5), pose=[round(c, 4) for c in pose],
                           v_cap=verdict.v_cap, phase=phase)
 
-                motion_ref, stuck = self._stuck_check(motion_ref, now, pose, v, w)
+                if blocked_since is not None:
+                    motion_ref, stuck = None, False     # the guard is holding the robot, not a stall
+                else:
+                    motion_ref, stuck = self._stuck_check(motion_ref, now, pose, v, w)
                 if stuck:
                     status, reason = "stuck", "commanded motion without odometry change"
                     break
@@ -241,6 +270,7 @@ class EpisodeRunner:
                 self._set_status(pose=pose, v=v, w=w, elapsed_s=now - t0, replies=nav.replies,
                                  requests=stats["requests"], protective_stop=authority.stopped,
                                  stop_reason=authority.stop_reason if authority.stopped else "",
+                                 guard_blocked=sup.blocked if sup is not None else "",
                                  final=nav.tracker.final, distance_m=distance)
                 t_next += period
                 late = time.monotonic() - t_next
@@ -256,7 +286,7 @@ class EpisodeRunner:
             robot.cmd.set(0.0, 0.0)
             if worker is not None:
                 worker.join(timeout=cfg.vla.timeout_s + 1.0)
-            robot.cmd.release(cfg.base.zero_hold_s)
+            robot.cmd.release(zero_hold)
 
         lat = stats["latency"]
         self.result = EpisodeResult(

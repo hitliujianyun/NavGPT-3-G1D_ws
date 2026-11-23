@@ -4,6 +4,7 @@
     GET  /status                 live episode status (pose, v, w, replies, stops, result)
     POST /episode  {"instruction": "..."}    start an episode (409 if one is running)
     POST /stop     {"reason": "..."}         stop the running episode
+    POST /estop/clear                        clear a latched chassis bumper / cliff e-stop (direct mode)
 """
 
 from __future__ import annotations
@@ -66,6 +67,12 @@ def serve(runner, robot, vla, host: str, port: int) -> None:
             elif path == "/stop":
                 runner.stop(str(body.get("reason") or "stop requested over API"))
                 self._send({"stopping": runner.running})
+            elif path == "/estop/clear":
+                if runner.running:
+                    self._send({"error": "stop the episode first"}, 409)
+                else:
+                    getattr(robot, "clear_estop", lambda: None)()
+                    self._send({"cleared": True})
             else:
                 self._send({"error": "not found"}, 404)
 

@@ -23,17 +23,23 @@ class DdsConfig:
 
 @dataclass(frozen=True)
 class TopicsConfig:
-    odom: str = "rt/slamware_ros_sdk_server_node/odom"
+    odom: str = "rt/slamware_ros_sdk_server_node/odom"   # with g1d_ws running: rt/nav/base_odom (LIO + wheels)
     scan: str = "rt/slamware_ros_sdk_server_node/scan"
-    cmd_vel: str = "rt/cmd_vel_no_limit"
+    cmd_vel: str = "rt/cmd_vel_no_limit"                  # written in direct mode
+    guard_cmd: str = "rt/nav/cmd_vel"                     # written in guard mode
+    guard_state: str = "rt/nav/guard_state"
+    joystick: str = "rt/wirelesscontroller"
 
 
 @dataclass(frozen=True)
 class BaseConfig:
+    output: str = "direct"                # direct: write cmd_vel; guard: hand commands to the base guard
+    other_writers: str = "refuse"         # direct mode: refuse | warn when cmd_vel already has a writer
     publish_hz: float = 30.0
     cmd_timeout_s: float = 0.3
-    zero_hold_s: float = 1.0
-    cmd_x_sign: float = 1.0
+    zero_hold_s: float = 1.0              # direct mode; the guard does its own zero hold
+    guard_release_s: float = 0.2
+    cmd_x_sign: float = 1.0               # direct mode only; in guard mode the guard owns the base
     cmd_yaw_sign: float = 1.0
     odom_yaw_sign: float = 1.0
 
@@ -41,12 +47,33 @@ class BaseConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     host: str = "192.168.123.164"
-    port: int = 55555
-    binocular: bool = True
+    port: Optional[int] = None            # null: ask teleimager (request_port) for the head camera's port
+    binocular: Optional[bool] = None      # null: from the teleimager config
+    request_port: int = 60000
+    name: str = "head_camera"
     eye: str = "left"
     out_size: int = 400
     stale_after_s: float = 0.3
     latency_s: float = 0.06               # capture-to-receipt delay
+
+
+@dataclass(frozen=True)
+class SupervisorConfig:
+    joystick: bool = True                 # direct mode: remote sticks end the episode
+    joystick_deadzone: float = 0.15
+    chassis_http: Optional[str] = "http://192.168.123.163:1448"   # direct mode bumper/cliff events; null disables
+    estop_events: tuple = ("BUMPER_TRIGGERED", "CLIFF_DETECTED")
+    event_poll_s: float = 0.2
+    guard_state_timeout_s: float = 0.5    # guard mode: older guard state ends the episode
+    guard_block_timeout_s: float = 20.0   # guard mode: held back this long ends the episode as blocked
+
+
+@dataclass(frozen=True)
+class RecordConfig:
+    rate_hz: float = 4.0                  # dense frames for navgpt_sft (keyframes are picked at training time)
+    out_dir: str = "data/sft/g1d_teleop"
+    manifest: str = "train.jsonl"
+    jpeg_quality: int = 95
 
 
 @dataclass(frozen=True)
@@ -85,7 +112,9 @@ class AppConfig:
     tracker: TrackerParams = field(default_factory=TrackerParams)
     navigator: NavigatorParams = field(default_factory=NavigatorParams)
     safety: SafetyParams = field(default_factory=SafetyParams)
+    supervisor: SupervisorConfig = field(default_factory=SupervisorConfig)
     episode: EpisodeConfig = field(default_factory=EpisodeConfig)
+    record: RecordConfig = field(default_factory=RecordConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
 
 
@@ -106,7 +135,20 @@ def load_config(path=None) -> AppConfig:
         raise ValueError("unknown section(s) {}; valid: {}".format(sorted(unknown), sorted(sections)))
     classes = {"dds": DdsConfig, "topics": TopicsConfig, "base": BaseConfig, "camera": CameraConfig,
                "vla": VlaConfig, "tracker": TrackerParams, "navigator": NavigatorParams,
-               "safety": SafetyParams, "episode": EpisodeConfig, "api": ApiConfig}
+               "safety": SafetyParams, "supervisor": SupervisorConfig, "episode": EpisodeConfig,
+               "record": RecordConfig, "api": ApiConfig}
     built = {name: _build(cls, raw.get(name) or {}, name) for name, cls in classes.items()}
     built["navigator"] = dataclasses.replace(built["navigator"], tracker=built["tracker"])
-    return AppConfig(**built)
+    built["supervisor"] = dataclasses.replace(built["supervisor"], estop_events=tuple(built["supervisor"].estop_events))
+    cfg = AppConfig(**built)
+    _check(cfg)
+    return cfg
+
+
+def _check(cfg: AppConfig) -> None:
+    if cfg.base.output not in ("direct", "guard"):
+        raise ValueError("base.output must be direct or guard, got {!r}".format(cfg.base.output))
+    if cfg.base.other_writers not in ("refuse", "warn"):
+        raise ValueError("base.other_writers must be refuse or warn, got {!r}".format(cfg.base.other_writers))
+    if cfg.camera.eye not in ("left", "right"):
+        raise ValueError("camera.eye must be left or right, got {!r}".format(cfg.camera.eye))

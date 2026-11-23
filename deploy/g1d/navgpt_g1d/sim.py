@@ -27,6 +27,7 @@ from .dds import CmdVelStreamer, RateMeter, Scan
 from .geometry import Pose, integrate_unicycle, world_to_body, wrap_angle
 from .path import resample
 from .pose_buffer import PoseBuffer
+from .supervisor import CLEAR, Supervision
 
 ROUTES = {
     "straight": [(0.0, 0.0), (4.0, 0.0)],
@@ -137,11 +138,30 @@ class SimWorld:
 
 
 class SimRobot:
-    def __init__(self, world: SimWorld, publish_hz: float = 30.0, cmd_timeout_s: float = 0.3):
+    """``supervision(t)`` (t = seconds since the world started) can script external
+    events for tests: a remote takeover, a guard holding the robot back, an e-stop."""
+
+    def __init__(self, world: SimWorld, publish_hz: float = 30.0, cmd_timeout_s: float = 0.3,
+                 zero_hold_s: float = 1.0, supervision=None):
         self.world = world
         self.odom = world.odom
-        self.cmd = CmdVelStreamer(world.apply, publish_hz, cmd_timeout_s)
+        self.cmd = CmdVelStreamer(self._write, publish_hz, cmd_timeout_s)
         self.dry_run = False
+        self.zero_hold_s = zero_hold_s
+        self.supervision = supervision
+        self._held = False
+
+    def _write(self, v: float, w: float) -> None:
+        # A blocking guard overrides whatever the episode commands.
+        self.world.apply(0.0, 0.0) if self._held else self.world.apply(v, w)
+
+    def release_zero_hold(self) -> float:
+        return self.zero_hold_s
+
+    def supervise(self, now: float, since: float) -> Supervision:
+        verdict = self.supervision(now - self.world.t0) if self.supervision else CLEAR
+        self._held = bool(verdict.blocked)
+        return verdict
 
     def frame(self):
         now = time.monotonic()

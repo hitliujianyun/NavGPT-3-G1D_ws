@@ -8,26 +8,49 @@ dds:
   interface_ip: null               # ... or, preferred, its 192.168.123.x address (verify)
 
 topics:
-  odom: rt/slamware_ros_sdk_server_node/odom
+  odom: rt/slamware_ros_sdk_server_node/odom   # wheel odometry ~20 Hz; with g1d_ws running use rt/nav/base_odom
   scan: rt/slamware_ros_sdk_server_node/scan
-  cmd_vel: rt/cmd_vel_no_limit
+  cmd_vel: rt/cmd_vel_no_limit     # written in direct mode
+  guard_cmd: rt/nav/cmd_vel        # written in guard mode (g1d_ws base guard input)
+  guard_state: rt/nav/guard_state
+  joystick: rt/wirelesscontroller
 
 base:
-  publish_hz: 30                   # /cmd_vel_no_limit publish rate
+  output: direct                   # direct: write cmd_vel_no_limit; guard: drive through the g1d_ws base guard
+  other_writers: refuse            # direct mode: refuse to start if cmd_vel_no_limit already has a writer
+  publish_hz: 30                   # command publish rate
   cmd_timeout_s: 0.3               # deadman: older commands are published as zero
-  zero_hold_s: 1.0                 # zero velocity after an episode, then the channel is released
-  cmd_x_sign: 1.0                  # verify with `python -m navgpt_g1d smoke`
+  zero_hold_s: 1.0                 # direct mode: zero velocity after an episode, then the channel is released
+  guard_release_s: 0.2             # guard mode: the guard does its own zero hold
+  cmd_x_sign: 1.0                  # direct mode; verify with `python -m navgpt_g1d smoke`
   cmd_yaw_sign: 1.0
   odom_yaw_sign: 1.0
 
 camera:                            # Unitree teleimager on PC2
   host: 192.168.123.164
-  port: 55555
-  binocular: true                  # left|right side by side, 480x1280
+  port: null                       # null: ask teleimager (request_port) for head_camera's port
+  binocular: null                  # null: from the teleimager config (head camera: left|right, 480x1280)
+  request_port: 60000
+  name: head_camera
   eye: left
   out_size: 400                    # square, as in training; also keeps the Wi-Fi upload small
   stale_after_s: 0.3
   latency_s: 0.06                  # verify: capture-to-receipt delay
+
+supervisor:
+  joystick: true                   # direct mode: remote sticks end the episode and release the base at once
+  joystick_deadzone: 0.15
+  chassis_http: http://192.168.123.163:1448   # direct mode bumper / cliff events latch an e-stop; null disables
+  estop_events: [BUMPER_TRIGGERED, CLIFF_DETECTED]
+  event_poll_s: 0.2
+  guard_state_timeout_s: 0.5       # guard mode: no guard state for this long ends the episode
+  guard_block_timeout_s: 20.0      # guard mode: held back by the guard this long ends the episode as blocked
+
+record:                            # python -m navgpt_g1d record
+  rate_hz: 4.0
+  out_dir: data/sft/g1d_teleop
+  manifest: train.jsonl
+  jpeg_quality: 95
 
 vla:                               # server/serve_vla.py on the RTX 5090 host
   url: http://192.168.123.200:8100 # verify
