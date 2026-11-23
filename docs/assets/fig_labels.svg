@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 430" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#111827"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="58" y="22" font-size="15" font-weight="600" fill="#1d2330">训练标签：稠密轨迹 → 部署规则关键帧 → 当前帧的 8 个目标航点</text>
+<line x1="80.4" y1="42" x2="80.4" y2="384.0" stroke="#eef0f4"/>
+<text x="80.4" y="399.0" font-size="11" fill="#5b6475" text-anchor="middle">0</text>
+<line x1="192.6" y1="42" x2="192.6" y2="384.0" stroke="#eef0f4"/>
+<text x="192.6" y="399.0" font-size="11" fill="#5b6475" text-anchor="middle">1</text>
+<line x1="304.7" y1="42" x2="304.7" y2="384.0" stroke="#eef0f4"/>
+<text x="304.7" y="399.0" font-size="11" fill="#5b6475" text-anchor="middle">2</text>
+<line x1="416.8" y1="42" x2="416.8" y2="384.0" stroke="#eef0f4"/>
+<text x="416.8" y="399.0" font-size="11" fill="#5b6475" text-anchor="middle">3</text>
+<line x1="58" y1="333.5" x2="461.7" y2="333.5" stroke="#eef0f4"/>
+<text x="52" y="337.5" font-size="11" fill="#5b6475" text-anchor="end">0</text>
+<line x1="58" y1="277.5" x2="461.7" y2="277.5" stroke="#eef0f4"/>
+<text x="52" y="281.5" font-size="11" fill="#5b6475" text-anchor="end">0.5</text>
+<line x1="58" y1="221.4" x2="461.7" y2="221.4" stroke="#eef0f4"/>
+<text x="52" y="225.4" font-size="11" fill="#5b6475" text-anchor="end">1</text>
+<line x1="58" y1="165.3" x2="461.7" y2="165.3" stroke="#eef0f4"/>
+<text x="52" y="169.3" font-size="11" fill="#5b6475" text-anchor="end">1.5</text>
+<line x1="58" y1="109.3" x2="461.7" y2="109.3" stroke="#eef0f4"/>
+<text x="52" y="113.3" font-size="11" fill="#5b6475" text-anchor="end">2</text>
+<line x1="58" y1="53.2" x2="461.7" y2="53.2" stroke="#eef0f4"/>
+<text x="52" y="57.2" font-size="11" fill="#5b6475" text-anchor="end">2.5</text>
+<rect x="58" y="42" width="403.7" height="342.0" fill="none" stroke="#cbd1dc"/>
+<text x="259.8" y="422" font-size="12" fill="#1d2330" text-anchor="middle">x (m)</text>
+<text x="14" y="213.0" font-size="12" fill="#1d2330" text-anchor="middle" transform="rotate(-90 14 213.0)">y (m)</text>
+<polyline points="84.9,333.5 89.4,333.5 93.9,333.5 98.4,333.5 102.9,333.5 107.3,333.5 111.8,333.5 116.3,333.5 120.8,333.5 125.3,333.5 129.8,333.5 134.2,333.5 138.7,333.5 143.2,333.5 147.7,333.5 152.2,333.5 156.7,333.5 161.2,333.5 165.6,333.5 170.1,333.5 174.6,333.5 179.1,333.5 183.6,333.5 188.1,333.5 192.6,333.5 197.0,333.5 201.5,333.5 206.0,333.5 210.5,333.5 215.0,333.5 219.5,333.5 224.0,333.5 228.4,333.5 232.9,333.5 237.4,333.5 241.9,333.5 246.4,333.5 250.9,333.5 255.4,333.5 259.8,333.5 264.3,333.3 268.8,332.7 273.1,331.7 277.4,330.3 281.5,328.6 285.5,326.4 289.2,324.0 292.7,321.2 295.9,318.1 298.9,314.7 301.5,311.0 303.8,307.2 305.7,303.1 307.3,298.9 308.5,294.6 309.2,290.2 309.6,285.7 309.8,281.3 310.0,276.8 310.2,272.3 310.4,267.8 310.5,263.3 310.7,258.8 310.9,254.4 311.1,249.9 311.3,245.4 311.5,240.9 311.6,236.4 311.8,232.0 312.0,227.5 312.2,223.0 312.4,218.5 312.6,214.0 312.7,209.6 312.9,205.1 313.1,200.6 313.3,196.1 313.5,191.6 313.7,187.1 313.8,182.7 314.0,178.2 314.2,173.7 314.4,169.2 314.6,164.7 314.8,160.3 314.9,155.8 315.1,151.3 315.3,146.8 315.5,142.3 315.7,137.8 315.9,133.4 316.0,128.9 316.2,124.4 316.4,119.9 316.6,115.4 316.8,111.0 316.9,106.5 317.1,102.0 317.3,97.5 317.5,93.0" fill="none" stroke="#94a3b8" stroke-width="2" stroke-opacity="1.0" stroke-linejoin="round"/>
+<circle cx="84.9" cy="333.5" r="3.5" fill="#64748b"/>
+<circle cx="116.3" cy="333.5" r="3.5" fill="#64748b"/>
+<circle cx="147.7" cy="333.5" r="3.5" fill="#64748b"/>
+<circle cx="179.1" cy="333.5" r="3.5" fill="#64748b"/>
+<circle cx="210.5" cy="333.5" r="3.5" fill="#64748b"/>
+<circle cx="241.9" cy="333.5" r="3.5" fill="#64748b"/>
+<polyline points="" fill="none" stroke="#64748b" stroke-width="0.1" stroke-opacity="1.0" stroke-linejoin="round"/>
+<polyline points="273.1,331.7 285.5,326.4 295.9,318.1 303.8,307.2 308.5,294.6 310.5,263.3 311.8,232.0 313.1,200.6" fill="none" stroke="#0f766e" stroke-width="2.5" stroke-opacity="1.0" stroke-linejoin="round"/>
+<circle cx="273.1" cy="331.7" r="4" fill="#0f766e"/>
+<text x="280.1" y="324.7" font-size="11" fill="#0f766e">1</text>
+<circle cx="285.5" cy="326.4" r="4" fill="#0f766e"/>
+<circle cx="295.9" cy="318.1" r="4" fill="#0f766e"/>
+<circle cx="303.8" cy="307.2" r="4" fill="#0f766e"/>
+<text x="310.8" y="300.2" font-size="11" fill="#0f766e">4</text>
+<circle cx="308.5" cy="294.6" r="4" fill="#0f766e"/>
+<circle cx="310.5" cy="263.3" r="4" fill="#0f766e"/>
+<circle cx="311.8" cy="232.0" r="4" fill="#0f766e"/>
+<circle cx="313.1" cy="200.6" r="4" fill="#0f766e"/>
+<text x="320.1" y="193.6" font-size="11" fill="#0f766e">8</text>
+<circle cx="255.4" cy="333.5" r="5" fill="#dc2626"/>
+<text x="193.7" y="361.6" font-size="12" fill="#dc2626">当前帧（两个关键帧之间）</text>
+<line x1="72" y1="60" x2="98" y2="60" stroke="#94a3b8" stroke-width="2.5"/>
+<text x="104" y="64" font-size="12" fill="#1d2330">遥操作稠密轨迹（每帧一个位姿）</text>
+<line x1="72" y1="78" x2="98" y2="78" stroke="#64748b" stroke-width="2.5"/>
+<text x="104" y="82" font-size="12" fill="#1d2330">关键帧：每 0.25 m 或 15° 一个，构成视觉历史</text>
+<line x1="72" y1="96" x2="98" y2="96" stroke="#0f766e" stroke-width="2.5"/>
+<text x="104" y="100" font-size="12" fill="#1d2330">8 个目标航点（相对当前帧，按同一规则往后取）</text>
+</svg>

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>并行推理与平滑轨迹：功能详解（navgpt_g1d）</title>
+<style>
+  :root { --bg:#fbfbfd; --fg:#1d2330; --muted:#5b6475; --line:#e3e6ee; --accent:#0f766e; --accent-soft:#e6f4f2;
+          --warn:#b45309; --warn-soft:#fdf3e5; --bad:#b91c1c; --bad-soft:#fdecec; --code-bg:#f3f4f8; --side:290px; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg); background:var(--bg); }
+  nav#toc { position:fixed; top:0; left:0; bottom:0; width:var(--side); overflow-y:auto; padding:22px 18px 40px; background:#fff; border-right:1px solid var(--line); font-size:13.5px; }
+  nav#toc h2 { font-size:15px; margin:0 0 10px; }
+  nav#toc ol { padding-left:18px; margin:0; } nav#toc li { margin:3px 0; } nav#toc ol ol { padding-left:14px; font-size:12.8px; }
+  nav#toc a { color:var(--fg); text-decoration:none; } nav#toc a:hover { color:var(--accent); }
+  main { margin-left:var(--side); padding:36px 56px 120px; max-width:calc(var(--side) + 1100px); }
+  h1 { font-size:29px; line-height:1.3; margin:0 0 6px; }
+  h2 { font-size:22px; margin:54px 0 14px; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  h3 { font-size:17.5px; margin:30px 0 10px; } h4 { font-size:15.5px; margin:20px 0 8px; }
+  p { margin:8px 0 12px; } a { color:var(--accent); }
+  .subtitle { color:var(--muted); margin:0 0 18px; } .meta { font-size:13px; color:var(--muted); }
+  table { border-collapse:collapse; width:100%; margin:12px 0 18px; font-size:13.8px; background:#fff; }
+  th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; vertical-align:top; }
+  th { background:#f4f6fa; font-weight:600; } td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.hl td { background:var(--accent-soft); font-weight:600; }
+  code { font-family:"Cascadia Code",Consolas,monospace; font-size:12.8px; background:var(--code-bg); padding:1px 5px; border-radius:4px; }
+  pre { background:#1e2230; color:#e6e9f2; padding:14px 16px; border-radius:8px; overflow-x:auto; font-size:12.8px; line-height:1.55; }
+  pre code { background:none; padding:0; color:inherit; }
+  .callout { border-left:4px solid var(--accent); background:var(--accent-soft); padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0; }
+  .callout.warn { border-color:var(--warn); background:var(--warn-soft); } .callout.bad { border-color:var(--bad); background:var(--bad-soft); }
+  .callout b:first-child { display:block; margin-bottom:2px; }
+  .eq { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 16px; margin:10px 0 14px; font-family:"Cambria Math","Times New Roman",serif; font-size:16px; overflow-x:auto; }
+  .eq .tag { float:right; color:var(--muted); font-family:inherit; font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:14px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card .k { font-size:12.5px; color:var(--muted); } .card .v { font-size:22px; font-weight:700; color:var(--accent); } .card .d { font-size:12.5px; color:var(--muted); }
+  figure { margin:16px 0 22px; } figure img, figure svg { max-width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  figcaption { font-size:13px; color:var(--muted); margin-top:6px; }
+  .two { display:grid; grid-template-columns:1fr 1.35fr; gap:16px; align-items:start; }
+  @media (max-width:1100px) { .two { grid-template-columns:1fr; } }
+  @media (max-width:1000px) { nav#toc { position:static; width:auto; border-right:0; border-bottom:1px solid var(--line); } main { margin-left:0; padding:24px 18px 80px; } }
+</style>
+</head>
+<body>
+<nav id="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">一页纸总结</a></li>
+    <li><a href="#s2">问题：为什么会一卡一卡</a></li>
+    <li><a href="#s3">总体架构与线程</a></li>
+    <li><a href="#s4">时间与坐标：按拍照时刻锚定</a>
+      <ol><li><a href="#s4-1">位姿历史 PoseBuffer</a></li><li><a href="#s4-2">航点锚定公式</a></li></ol></li>
+    <li><a href="#s5">两次推理结果的接续</a>
+      <ol><li><a href="#s5-1">请求序号与过期</a></li><li><a href="#s5-2">裁剪已走部分</a></li><li><a href="#s5-3">航向空间过渡</a></li><li><a href="#s5-4">终点误差分摊</a></li><li><a href="#s5-5">为什么不用位置插值</a></li></ol></li>
+    <li><a href="#s6">视觉历史关键帧</a></li>
+    <li><a href="#s7">路径跟踪与平滑</a>
+      <ol><li><a href="#s7-1">纯追踪</a></li><li><a href="#s7-2">三重限速</a></li><li><a href="#s7-3">加速度限幅</a></li><li><a href="#s7-4">原地转向与滞回</a></li><li><a href="#s7-5">停车与到达</a></li></ol></li>
+    <li><a href="#s8">无线断供与容错</a></li>
+    <li><a href="#s9">安全层与运动授权</a></li>
+    <li><a href="#s10">底盘指令发布</a></li>
+    <li><a href="#s11">一次任务的生命周期</a></li>
+    <li><a href="#s12">日志、指标与调参</a></li>
+    <li><a href="#s13">验证结果</a></li>
+    <li><a href="#s14">参数总表</a></li>
+    <li><a href="#s15">局限与后续</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>并行推理与平滑轨迹：功能详解</h1>
+<p class="subtitle">navgpt_g1d（<code>deploy/g1d/</code>）如何让 NavGPT VLA 在宇树 G1-D 上边推理边行驶，并保证前后两次推理之间轨迹连续、平滑</p>
+<p class="meta">对应代码：<code>pose_buffer.py</code> · <code>path.py</code> · <code>navigator.py</code> · <code>tracker.py</code> · <code>episode.py</code> · <code>safety.py</code> · <code>authority.py</code> · <code>dds.py</code>　|　图由 <code>docs/tools/make_figures.py</code> 调用部署代码生成</p>
+
+<!-- ================================================================ -->
+<h2 id="s1">1. 一页纸总结</h2>
+<p><b>核心思想：推理和执行解耦。</b>20 Hz 的控制线程始终沿着一条“参考路径”行驶，从不等待模型；推理线程在后台不停地把最新相机帧送给 VLA，每收到一次预测，就把它锚定到里程计坐标、和当前路径平滑拼接，替换掉参考路径。底盘从而不会因为等推理而停下，前后两次预测之间也不会出现折角或跳变。</p>
+<div class="grid">
+  <div class="card"><div class="k">L 形路线 5.5 m（运动学仿真）</div><div class="v">21.6–27.6 s</div><div class="d">stop-and-go 需要 55–62 s</div></div>
+  <div class="card"><div class="k">行驶中平均速度</div><div class="v">0.24–0.27 m/s</div><div class="d">上限 0.3 m/s</div></div>
+  <div class="card"><div class="k">预测正常到达时的停顿</div><div class="v">0%</div><div class="d">速度低于 0.05 m/s 的比例</div></div>
+  <div class="card"><div class="k">拼接处最大折转</div><div class="v">5.7° / 5 cm</div><div class="d">位置插值为 16.3°</div></div>
+  <div class="card"><div class="k">加速度</div><div class="v">≤ 0.6 m/s²</div><div class="d">角加速度 ≤ 1.2 rad/s²</div></div>
+</div>
+<table>
+  <tr><th>要解决的问题</th><th>做法</th><th>代码</th></tr>
+  <tr><td>回复到达时机器人已经走开了</td><td>用<b>拍照时刻</b>的位姿把航点转到里程计坐标</td><td><code>PoseBuffer.at</code>、<code>path_from_waypoints</code></td></tr>
+  <tr><td>旧回复乱序、迟到</td><td>请求序号去重，拍照超过 3 s 的回复丢弃</td><td><code>Navigator.on_reply</code></td></tr>
+  <tr><td>两次预测形状不同</td><td>0.5 m 内在<b>航向空间</b>过渡，从机器人位置积分出路径</td><td><code>path.splice</code></td></tr>
+  <tr><td>新预测起点不在机器人处</td><td>终点误差沿全程平滑分摊，终点仍对准预测</td><td><code>path.splice</code></td></tr>
+  <tr><td>推理更频繁后历史帧太密</td><td>每 0.25 m / 15° 才提交一帧进 VLA 历史</td><td><code>Navigator.next_request</code>、<code>serve_vla.act_without_commit</code></td></tr>
+  <tr><td>速度突变、蛇形</td><td>纯追踪 + 曲率/刹停/最大速度三重限速 + 加速度限幅，中间航点不停不对齐</td><td><code>tracker.py</code></td></tr>
+  <tr><td>Wi-Fi 卡顿</td><td>路径缓冲约 1 m；1.5 s 无回复限速 0.1 m/s，3 s 停车</td><td><code>Navigator.control</code></td></tr>
+  <tr><td>安全</td><td>激光减速区与停止区；保护停止立即生效，区域清空后用新鲜帧恢复</td><td><code>safety.py</code>、<code>authority.py</code>、<code>episode.py</code></td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="s2">2. 问题：为什么会一卡一卡</h2>
+<p>最直接的做法是串行循环：取图 → 调 <code>/act</code> → 开到第 2 个航点 → 停 → 再取图。每走 0.25–0.4 m，机器人都要经历“停着等推理 → 加速 → 接近航点时减速到零 → 对齐朝向 → 零速保持”。实测部署里一步大约 4–5 s，平均速度只有 0.06–0.08 m/s，看起来一顿一顿的。</p>
+<p>关键认识：<b>VLA 给的 8 个航点是一个约 1 m 的局部规划，下一次推理马上会重新规划。</b>把其中某一点当成必须精确停住、对准朝向的目标，既没必要，又正是卡顿的来源。</p>
+<figure>
+  <img src="assets/fig_speed.svg" alt="speed profile">
+  <figcaption>图 1：同一组推理延迟与预测噪声下的指令线速度。橙色为 stop-and-go：每一步都“等推理 → 开到航点 → 停”。绿色为并行推理：起步后一直保持接近上限的速度，只在 L 形拐角处按曲率自动减速。</figcaption>
+</figure>
+
+<!-- ================================================================ -->
+<h2 id="s3">3. 总体架构与线程</h2>
+<figure>
+<svg viewBox="0 0 1060 430" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#475569"/></marker></defs>
+  <rect x="10" y="10" width="300" height="410" rx="12" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="24" y="36" font-size="15" font-weight="700" fill="#4338ca">RTX 5090 主机</text>
+  <rect x="30" y="60" width="260" height="110" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="44" y="84" font-size="13" font-weight="600">serve_vla.py :8100</text>
+  <text x="44" y="106" font-size="12" fill="#475569">NavGPTVLA(view_num=1)</text>
+  <text x="44" y="126" font-size="12" fill="#475569">commit=true：帧进入视觉历史</text>
+  <text x="44" y="146" font-size="12" fill="#475569">commit=false：只作当前观测</text>
+  <text x="44" y="196" font-size="12" fill="#475569">所有请求串行处理（有状态）</text>
+
+  <rect x="350" y="10" width="700" height="410" rx="12" fill="#f0fdfa" stroke="#0f766e"/>
+  <text x="364" y="36" font-size="15" font-weight="700" fill="#0f766e">机器人侧（PC2）</text>
+  <rect x="370" y="56" width="300" height="118" rx="8" fill="#fff" stroke="#0f766e"/>
+  <text x="384" y="80" font-size="13" font-weight="700">推理线程（一次回复到就发下一次）</text>
+  <text x="384" y="102" font-size="12">① camera.latest() → 帧 + 接收时刻</text>
+  <text x="384" y="122" font-size="12">② PoseBuffer.at(拍照时刻) → 位姿</text>
+  <text x="384" y="142" font-size="12">③ next_request：seq、是否提交关键帧</text>
+  <text x="384" y="162" font-size="12">④ /act → on_reply：锚定 + 拼接</text>
+
+  <rect x="370" y="196" width="300" height="140" rx="8" fill="#fff" stroke="#0f766e"/>
+  <text x="384" y="220" font-size="13" font-weight="700">控制线程 20 Hz（从不等推理）</text>
+  <text x="384" y="242" font-size="12">① PoseBuffer.predict(现在) → 位姿</text>
+  <text x="384" y="262" font-size="12">② ScanSafety.check → 停止 / 限速</text>
+  <text x="384" y="282" font-size="12">③ Navigator.control → tracker (v, w)</text>
+  <text x="384" y="302" font-size="12">④ MotionAuthority.filter（授权版本）</text>
+  <text x="384" y="322" font-size="12">⑤ CmdVelStreamer.set(v, w)</text>
+
+  <rect x="700" y="56" width="330" height="80" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="714" y="80" font-size="13" font-weight="700">共享状态（一把锁）</text>
+  <text x="714" y="102" font-size="12">Navigator：参考路径、tracker、seq</text>
+  <text x="714" y="122" font-size="12">PoseBuffer：最近 5 s 位姿（自带锁）</text>
+
+  <rect x="700" y="156" width="330" height="70" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="714" y="180" font-size="13" font-weight="700">DDS 回调</text>
+  <text x="714" y="202" font-size="12">slamware odom → PoseBuffer.add</text>
+  <text x="714" y="220" font-size="12">slamware scan → 最新一帧激光</text>
+
+  <rect x="700" y="246" width="330" height="90" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="714" y="270" font-size="13" font-weight="700">CmdVelStreamer 线程 30 Hz</text>
+  <text x="714" y="292" font-size="12">rt/cmd_vel_no_limit（Twist_）</text>
+  <text x="714" y="312" font-size="12">0.3 s 无新指令 → 发零；结束零速保持</text>
+
+  <rect x="370" y="356" width="660" height="50" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="384" y="380" font-size="13" font-weight="600">teleimager 头部相机 ZMQ :55555</text>
+  <text x="384" y="398" font-size="12" fill="#475569">左目 → 中心裁方 → 400×400（训练分辨率）</text>
+
+  <line x1="370" y1="120" x2="290" y2="110" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="300" y="98" font-size="11" fill="#4338ca">帧 + seq</text>
+  <line x1="290" y1="140" x2="370" y2="150" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="300" y="166" font-size="11" fill="#4338ca">8 个航点</text>
+  <line x1="670" y1="110" x2="700" y2="100" stroke="#475569" marker-end="url(#a)"/>
+  <line x1="670" y1="270" x2="700" y2="112" stroke="#475569" marker-end="url(#a)"/>
+  <line x1="670" y1="320" x2="700" y2="292" stroke="#475569" marker-end="url(#a)"/>
+</svg>
+<figcaption>图 2：线程与数据流。无线链路上只有“帧 + 序号”上行、“8 个航点”下行；控制、里程计、安全和底盘发布都在机器人本地。</figcaption>
+</figure>
+<p>两个循环共享一个 <code>Navigator</code> 对象，用一把锁保护。<code>Navigator</code> 本身不含线程（<code>navigator.py</code>），线程由 <code>episode.py</code> 创建。这样调度逻辑可以在不起线程的情况下用运动学仿真做单元测试。</p>
+<figure>
+<svg viewBox="0 0 1060 250" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <text x="20" y="26" font-size="14" font-weight="700" fill="#1d2330">时间线对比</text>
+  <text x="20" y="66" font-size="12.5" fill="#b45309" font-weight="600">stop-and-go</text>
+  <g font-size="11">
+    <rect x="130" y="50" width="90" height="24" fill="#fde68a"/><text x="140" y="66">等推理</text>
+    <rect x="220" y="50" width="110" height="24" fill="#fdba74"/><text x="230" y="66">开到航点</text>
+    <rect x="330" y="50" width="60" height="24" fill="#fecaca"/><text x="336" y="66">停/对齐</text>
+    <rect x="390" y="50" width="90" height="24" fill="#fde68a"/><text x="400" y="66">等推理</text>
+    <rect x="480" y="50" width="110" height="24" fill="#fdba74"/><text x="490" y="66">开到航点</text>
+    <rect x="590" y="50" width="60" height="24" fill="#fecaca"/><text x="596" y="66">停/对齐</text>
+    <rect x="650" y="50" width="90" height="24" fill="#fde68a"/><text x="660" y="66">等推理</text>
+    <rect x="740" y="50" width="110" height="24" fill="#fdba74"/><text x="750" y="66">开到航点</text>
+  </g>
+  <text x="20" y="130" font-size="12.5" fill="#0f766e" font-weight="600">并行：推理线程</text>
+  <g font-size="11">
+    <rect x="130" y="114" width="150" height="24" fill="#c7d2fe"/><text x="140" y="130">推理 #1</text>
+    <rect x="280" y="114" width="130" height="24" fill="#a5b4fc"/><text x="290" y="130">推理 #2</text>
+    <rect x="410" y="114" width="170" height="24" fill="#c7d2fe"/><text x="420" y="130">推理 #3</text>
+    <rect x="580" y="114" width="140" height="24" fill="#a5b4fc"/><text x="590" y="130">推理 #4</text>
+    <rect x="720" y="114" width="150" height="24" fill="#c7d2fe"/><text x="730" y="130">推理 #5</text>
+    <rect x="870" y="114" width="140" height="24" fill="#a5b4fc"/><text x="880" y="130">推理 #6</text>
+  </g>
+  <text x="20" y="186" font-size="12.5" fill="#0f766e" font-weight="600">并行：控制线程</text>
+  <rect x="130" y="170" width="150" height="24" fill="#e2e8f0"/><text x="140" y="186" font-size="11">等首个预测</text>
+  <rect x="280" y="170" width="730" height="24" fill="#99f6e4"/><text x="300" y="186" font-size="11">持续沿参考路径行驶（20 Hz），每个回复到达时就地拼接</text>
+  <g stroke="#0f766e" stroke-width="2">
+    <line x1="280" y1="140" x2="280" y2="170"/><line x1="410" y1="140" x2="410" y2="170"/><line x1="580" y1="140" x2="580" y2="170"/>
+    <line x1="720" y1="140" x2="720" y2="170"/><line x1="870" y1="140" x2="870" y2="170"/>
+  </g>
+  <text x="130" y="230" font-size="12" fill="#5b6475">竖线：一次回复到达 → 锚定到拍照时刻位姿 → 与当前路径拼接；控制线程不中断。</text>
+</svg>
+<figcaption>图 3：stop-and-go 把推理时间全部变成停车时间；并行方案里推理时间被行驶覆盖。</figcaption>
+</figure>
+
+<!-- ================================================================ -->
+<h2 id="s4">4. 时间与坐标：按拍照时刻锚定</h2>
+<h3 id="s4-1">4.1 位姿历史 PoseBuffer（<code>pose_buffer.py</code>）</h3>
+<p>slamware 里程计约 10 Hz，控制 20 Hz，而一次回复要在拍照后 0.3–2 s 才回来。<code>PoseBuffer</code> 保存最近 5 s 的位姿，提供两个查询：</p>
+<ul>
+  <li><b><code>at(t)</code></b>：在相邻两个样本之间线性插值（偏航角走最短弧，跨 ±π 也正确），超出范围时取端点。推理线程用它查“拍照时刻”的位姿：<code>t_capture = 帧接收时刻 − camera.latency_s</code>（默认 0.06 s，需要实测）。</li>
+  <li><b><code>predict(now)</code></b>：取最新样本，按上一条速度指令做最多 0.3 s 的航迹推算。控制线程用它，避免拿一个 100 ms 前的位姿去算控制量。</li>
+</ul>
+<p>相机帧和里程计样本都在<b>机器人本机</b>用同一个单调时钟打时间戳，所以不需要在 5090 主机和机器人之间做时钟同步。</p>
+
+<h3 id="s4-2">4.2 航点锚定公式（<code>path.path_from_waypoints</code>）</h3>
+<p>VLA 输出 8 个<b>累积</b>航点 (x<sub>k</sub>, y<sub>k</sub>, θ<sub>k</sub>)，表达在拍照那一刻的机体系里（+x 前、+y 左、θ 逆时针）。设拍照时刻位姿为 (p<sub>x</sub>, p<sub>y</sub>, p<sub>θ</sub>)：</p>
+<div class="eq">X<sub>k</sub> = p<sub>x</sub> + x<sub>k</sub>cos p<sub>θ</sub> − y<sub>k</sub>sin p<sub>θ</sub>，&nbsp; Y<sub>k</sub> = p<sub>y</sub> + x<sub>k</sub>sin p<sub>θ</sub> + y<sub>k</sub>cos p<sub>θ</sub>，&nbsp; Θ<sub>end</sub> = p<sub>θ</sub> + θ<sub>8</sub><span class="tag">(1)</span></div>
+<p>再把“拍照时刻位置 + 8 个航点”连成折线，去掉重复点，按 <code>ds</code>=5 cm 等弧长重采样，得到参考路径 <code>RefPath</code>（点列 + 累积弧长 + 终点朝向）。<b>无论回复多晚到，这条路径在世界坐标里都是对的</b>，这是后续拼接的基础。</p>
+
+<!-- ================================================================ -->
+<h2 id="s5">5. 两次推理结果的接续（<code>Navigator.on_reply</code> + <code>path.splice</code>）</h2>
+<h3 id="s5-1">5.1 请求序号与过期</h3>
+<p>每个请求有递增的 seq。回复被<b>丢弃</b>的情况：seq 不大于已应用的 seq（乱序或迟到）；拍照时刻早于最近一次恢复的时刻（保护停止期间拍的旧帧）；拍照已超过 <code>max_reply_age_s</code>=3 s；任务已结束。被接受的回复会更新 <code>last_reply_time</code>（用于断供判断，见第 8 节）和到达计数。</p>
+
+<h3 id="s5-2">5.2 裁剪已走部分</h3>
+<p>推理期间机器人沿旧路径走了一段，新预测的起点（拍照位置）已在机器人身后。把机器人当前位置投影到新路径上，取最近点的弧长 s*，只保留 s* 之后的部分 <code>new_r</code>。如果机器人已经越过整条新预测（预测很短，说明 VLA 认为该减速），路径就退化成机器人所在的一个点，跟踪器随之平滑减速。</p>
+
+<h3 id="s5-3">5.3 航向空间过渡</h3>
+<p>把旧路径也从机器人投影点裁剪成 <code>old_r</code>，两者都从“机器人所在处”开始按弧长 s 参数化。对每一小段计算切向角（展开为连续角度，并把旧路径的角度对齐到同一个 2π 周期），在 <code>blend_m</code>=0.5 m 内按 smoothstep 权重插值：</p>
+<div class="eq">a(s) = smoothstep(s / min(blend<sub>m</sub>, L<sub>old</sub>))，&nbsp; smoothstep(u) = 3u² − 2u³<span class="tag">(2)</span></div>
+<div class="eq">ψ(s) = ψ<sub>old</sub>(s) + a(s) · [ψ<sub>new</sub>(s) − ψ<sub>old</sub>(s)]<span class="tag">(3)</span></div>
+<p>然后从机器人位置出发逐段积分出新路径：P(s+Δs) = P(s) + Δs·(cos ψ, sin ψ)。smoothstep 在两端导数为零，所以曲率在过渡段两端都是连续的：起点处与正在跟踪的方向相切，终点处与新预测的方向相切。<code>blend_m</code> 不小于跟踪器的前视距离，因此控制量计算时看到的始终是已经平滑过的那一段。</p>
+
+<h3 id="s5-4">5.4 终点误差分摊</h3>
+<p>积分出的路径形状正确，但终点会偏离新预测的终点：机器人此刻不在新预测的起点上，偏差来自推理期间的移动和两次预测的差异。把这个误差 e = P<sub>new,end</sub> − P(L) 沿整条路径按 smoothstep 权重分摊：</p>
+<div class="eq">P'(s) = P(s) + smoothstep(s / L) · e<span class="tag">(4)</span></div>
+<p>结果是：路径<b>从机器人出发、起始方向与当前行驶方向相切、终点正好落在 VLA 预测的位置</b>，偏差在约 1 m 的全程内慢慢消化，中途没有急转。</p>
+
+<h3 id="s5-5">5.5 为什么不用位置插值</h3>
+<p>最初的实现直接在相同弧长处对两条路径的<b>位置</b>做插值。问题在于：两条从同一点出发、夹角不同的射线，混合权重随 s 变化时会产生额外的横向速度项 s·a'(s)·(u<sub>new</sub>−u<sub>old</sub>)，路径会先冲过头再拐回来。下图是测试用例“新预测与旧路径夹角 29°、推理期间已走 0.4 m”：</p>
+<figure>
+  <img src="assets/fig_splice.svg" alt="splice comparison">
+  <figcaption>图 4：红线为位置插值，航向冲到约 66°，每 5 cm 最大折转 16.3°；绿线为采用的航向插值，航向单调变化（含终点误差分摊约 44°），每 5 cm 最大折转 5.7°。两者终点都对准 VLA 预测终点。</figcaption>
+</figure>
+<p>此外还会计算拼接偏差：在机器人前方 1 m 内，新旧两条路径的最大距离。它写进日志的 <code>deviation_m</code>，用来判断 VLA 前后两次预测是否一致：持续偏大，说明模型输出在抖。</p>
+
+<!-- ================================================================ -->
+<h2 id="s6">6. 视觉历史关键帧</h2>
+<p>NavGPT VLA 的训练数据里，历史帧大约每 0.25 m 前进或每 15° 转向才有一帧（对应 Habitat 的离散动作）。并行推理以后请求频率由推理速度决定；如果每帧都进历史，帧会比训练分布密得多。</p>
+<p><code>Navigator.next_request</code> 的规则：第一帧必定提交；之后只有相对上一次<b>提交</b>的帧移动 ≥ <code>keyframe_m</code>=0.25 m 或转动 ≥ <code>keyframe_rad</code>=15° 时，才设置 <code>commit=true</code>。服务端在 <code>commit=false</code> 时调用 <code>act_without_commit</code>：先把这帧临时追加为当前观测，预测完再从历史和帧缓存里移除。所以每次预测都能用上最新画面，而历史帧的间距仍贴近训练分布。</p>
+<div class="callout warn"><b>速度上限的经验规则</b>v<sub>max</sub> ≲ keyframe_m × 推理频率。例如 1 Hz 推理配 0.25 m/s，2 Hz 配 0.5 m/s。超过之后，相邻两次提交之间的距离会大于 0.25 m。日志报告里的 <code>committed_frames / replies</code> 可以帮助判断。</div>
+
+<!-- ================================================================ -->
+<h2 id="s7">7. 路径跟踪与平滑（<code>tracker.py</code>）</h2>
+<h3 id="s7-1">7.1 纯追踪</h3>
+<p>每个控制周期：把机器人投影到参考路径上得到弧长 s<sub>r</sub>，剩余长度 R = L − s<sub>r</sub>。在路径上取前视点 P(s<sub>r</sub> + L<sub>d</sub>)：</p>
+<div class="eq">L<sub>d</sub> = max(lookahead_min, lookahead_time · |v|) = max(0.35 m, 1.0 s · |v|)<span class="tag">(5)</span></div>
+<div class="eq">α = atan2(Δy, Δx) − θ<sub>robot</sub>，&nbsp; κ = 2 sin α / d<sub>前视点</sub><span class="tag">(6)</span></div>
+
+<h3 id="s7-2">7.2 三重限速</h3>
+<div class="eq">v<sub>target</sub> = min( v<sub>max</sub>,&nbsp; w<sub>max</sub>/|κ|,&nbsp; √(2·a<sub>dec</sub>·max(R − goal_tol/2, 0)) ) · max(cos α, 0)，&nbsp; w<sub>target</sub> = v<sub>target</sub> · κ<span class="tag">(7)</span></div>
+<ul>
+  <li><b>曲率限速</b> w<sub>max</sub>/|κ|：转弯越急越慢，角速度永远不超过 w<sub>max</sub>（图 1 中 10–13 s 的减速就是 L 形拐角）。</li>
+  <li><b>刹停限速</b>：保证在参考路径用完之前能以 a<sub>dec</sub> 停下。路径正常刷新时剩余约 0.7–1 m，这一项不起作用；只有预测断供或接近终点时才减速。</li>
+  <li><b>外部限速</b> v_cap：来自安全层的减速区和断供限速，同时按比例缩放 w 以保持曲率。</li>
+</ul>
+
+<h3 id="s7-3">7.3 加速度限幅</h3>
+<p>目标值不直接下发，而是以加速度上限逼近：|v| 增大时每拍最多变化 a<sub>max</sub>·dt（0.4 m/s²），减小或换向时最多 a<sub>dec</sub>·dt（0.6 m/s²）；角速度每拍最多变化 alpha<sub>max</sub>·dt（1.2 rad/s²）。这里的 dt 是<b>实测</b>的控制间隔，限定在 [0.2, 3] 倍标称周期之内；控制循环落后超过一个周期时重新对齐节拍，不连续补拍。这是调试中发现的问题：如果用固定 50 ms 算限幅，调度抖动会让实际加速度超标（曾测到 0.97 m/s²）。</p>
+
+<h3 id="s7-4">7.4 原地转向与滞回</h3>
+<p>G1-D 是差速底盘，不能横移。前视方位 |α| 大于 <code>rotate_enter</code>=1.0 rad 时进入原地转向，w = clip(k<sub>rotate</sub>·α, ±w<sub>max</sub>)；直到 |α| 小于 <code>rotate_exit</code>=0.35 rad 才退出。两个阈值形成滞回，避免在“边走边转”和“原地转”之间来回抖。预测路径短于 <code>min_path_m</code>=8 cm 时视为纯转向指令，直接转到预测的终点朝向。</p>
+
+<h3 id="s7-5">7.5 停车与到达</h3>
+<ul>
+  <li><b>中间航点</b>：不停车，不对齐朝向。剩余路径小于 <code>goal_tol</code> 且不是最终路径时，目标速度为 0，等待下一次预测；正常情况下新路径早已到达，不会走到这一步。</li>
+  <li><b>到达判定</b>：VLA 不会输出 STOP。最后一个航点距离小于 0.25 m 且角度小于 30° 视为“视野收敛”，<b>连续两次</b>收敛（<code>arrival_hits</code>=2）才把当前路径标记为最终路径。</li>
+  <li><b>最终路径</b>：按刹停限速减速到路径终点，进入 0.10 m 范围后原地对齐到预测的终点朝向（误差小于 0.10 rad），速度与角速度都降到接近零后，判定任务完成。</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="s8">8. 无线断供与容错</h2>
+<table>
+  <tr><th>情况</th><th>行为</th><th>参数</th></tr>
+  <tr><td>回复正常到达</td><td>路径缓冲约 1 m（8 个航点），以 0.3 m/s 行驶约 3 s，足以覆盖 0.3–1.2 s 的往返延迟</td><td>—</td></tr>
+  <tr><td>距上次<b>接受</b>回复超过 1.5 s</td><td>速度上限降到 0.1 m/s（通过 v_cap，平滑减速）</td><td><code>starve_s</code>、<code>starve_speed</code></td></tr>
+  <tr><td>超过 3 s</td><td>清空参考路径，按 a<sub>dec</sub> 停车，等待新预测</td><td><code>stop_s</code></td></tr>
+  <tr><td>单次 <code>/act</code> 失败</td><td>记录 <code>act_failed</code>，0.2 s 后重试；机器人继续沿当前路径走</td><td>—</td></tr>
+  <tr><td>连续 10 次失败</td><td>任务以 <code>error</code> 结束，底盘置零并释放</td><td>—</td></tr>
+  <tr><td>相机帧超过 0.3 s 未更新</td><td>该次不发请求（等新帧），控制线程照常</td><td><code>camera.stale_after_s</code></td></tr>
+  <tr><td>里程计超过 0.5 s 未更新</td><td>立即置零，任务以 <code>odom_lost</code> 结束</td><td><code>episode.odom_timeout_s</code></td></tr>
+</table>
+<p>断供计时从“最后一次<b>收到</b>有效回复”算起，而不是从拍照时刻算起。早期版本从拍照时刻算，一次请求在途时“年龄”天然会涨到两倍延迟，仿真里有一半时间被误判为断供，平均速度只有 0.17 m/s；改正后为 0.24–0.27 m/s。</p>
+
+<!-- ================================================================ -->
+<h2 id="s9">9. 安全层与运动授权</h2>
+<h3>9.1 激光保护区（<code>safety.py</code>）</h3>
+<figure>
+<svg viewBox="0 0 900 250" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <rect x="60" y="80" width="120" height="90" rx="10" fill="#cbd5e1" stroke="#475569"/><text x="78" y="130" font-size="13">G1-D 底盘</text>
+  <circle cx="150" cy="125" r="5" fill="#111827"/><text x="120" y="190" font-size="11" fill="#475569">激光中心</text>
+  <line x1="150" y1="40" x2="150" y2="220" stroke="#94a3b8" stroke-dasharray="3,3"/>
+  <rect x="180" y="62" width="180" height="126" fill="#fecaca" opacity="0.8"/>
+  <text x="196" y="130" font-size="12">停止区</text><text x="196" y="148" font-size="11" fill="#7f1d1d">0.35 m + v × 0.3 s</text>
+  <rect x="360" y="62" width="300" height="126" fill="#fde68a" opacity="0.7"/>
+  <text x="380" y="130" font-size="12">减速区：v ≤ v_max·(d − 0.35)/(1.20 − 0.35)</text>
+  <line x1="180" y1="210" x2="660" y2="210" stroke="#475569"/><text x="186" y="228" font-size="11">车头（front_m=0.30 m）</text><text x="600" y="228" font-size="11">1.20 m</text>
+  <line x1="680" y1="62" x2="680" y2="188" stroke="#475569"/><text x="690" y="130" font-size="11">宽度 = 2×(0.27 + 0.10) m</text>
+  <circle cx="120" cy="125" r="70" fill="none" stroke="#dc2626" stroke-dasharray="5,4"/><text x="20" y="52" font-size="11" fill="#b91c1c">原地转向时：旋转圆 0.34 + 0.08 m</text>
+</svg>
+<figcaption>图 5：前向走廊上的两个区域。底盘只会前进（跟踪器不倒车），所以行驶时只检查前方；原地转向时检查整个旋转圆。</figcaption>
+</figure>
+<ul>
+  <li>激光点先按安装位姿（<code>lidar_x/y/yaw</code>）转到底盘坐标，过滤小于 0.12 m 的自身回波。</li>
+  <li>前向走廊内最近的障碍距车头 d：d &lt; 0.35 + v·0.3 时触发<b>保护停止</b>；d &lt; 1.20 时限速 max(0.05, v<sub>max</sub>·(d−0.35)/0.85)，让机器人提前平缓减速，而不是贴近才急刹。</li>
+  <li>原地转向（|v|&lt;0.02 且 |w|&gt;0.05）时，旋转圆 0.42 m 内有点即停。</li>
+  <li>激光数据超过 0.5 s 未更新，视为不安全，直接停。</li>
+</ul>
+
+<h3>9.2 运动授权与恢复（<code>authority.py</code>、<code>episode.py</code>）</h3>
+<p>按论文附录 B.4 实现：同一时刻最多一个操作持有“运动授权”。每次授予或撤销，版本号都会递增，命令只有在当前版本下才会被转发。保护停止的流程：</p>
+<ol>
+  <li>安全层判定停止 → <code>protective_stop</code> 立即撤销授权，<code>Navigator.halt()</code> 把跟踪器速度清零。<b>这一步绕过平滑</b>，是刻意设计的急停。</li>
+  <li>推理线程照常运行，但回复不再生效：授权被撤销，控制线程只发零。</li>
+  <li>检测区连续清空 <code>resume_clear_s</code>=1.0 s 后：清除保护停止，重新授予一个新版本的授权，并调用 <code>Navigator.resume(now)</code>。<b>只接受恢复之后拍的帧</b>给出的预测；非最终路径会被清空，从零速开始按加速度限幅重新起步。</li>
+</ol>
+<p>在全链路仿真中，一名行人从侧面横穿路线：机器人保护停止约 3 s，恢复后等待约 1.2 s 拿到新鲜预测，然后继续完成任务。</p>
+
+<!-- ================================================================ -->
+<h2 id="s10">10. 底盘指令发布（<code>dds.CmdVelStreamer</code>）</h2>
+<table>
+  <tr><th>机制</th><th>说明</th></tr>
+  <tr><td>固定频率发布</td><td>独立线程以 30 Hz 向 <code>rt/cmd_vel_no_limit</code> 写 <code>geometry_msgs/Twist_</code>（linear.x = v·cmd_x_sign，angular.z = w·cmd_yaw_sign）</td></tr>
+  <tr><td>只在占用期间发布</td><td><code>activate()</code> 之后才发；不占用时完全不写，通道留给遥控器</td></tr>
+  <tr><td>死人开关</td><td>控制线程超过 0.3 s 没有调用 <code>set()</code>，就改发零速。控制循环卡死时底盘会自己停下</td></tr>
+  <tr><td>结束释放</td><td><code>release(zero_hold_s=1.0)</code>：先发 1 s 零速确认停稳，再停止发布，交还通道</td></tr>
+  <tr><td>网卡绑定</td><td><code>init_dds</code> 支持 <code>interface_ip</code>：把 CycloneDDS 配置里的 <code>name=</code> 改成 <code>address=</code>，按 IP 绑定网卡，避免 DDS 走到 Wi-Fi 网卡上</td></tr>
+</table>
+<p>控制线程 20 Hz 计算、发布线程 30 Hz 发送，两者解耦：发布频率不受计算耗时影响，底盘收到的指令流稳定。</p>
+
+<!-- ================================================================ -->
+<h2 id="s11">11. 一次任务的生命周期（<code>EpisodeRunner.run</code>）</h2>
+<ol>
+  <li>等待里程计（最多 3 s）→ VLA <code>/reset</code> → 占用 cmd_vel 通道 → 授予运动授权 → 启动推理线程。</li>
+  <li>控制循环，每个周期依次检查：外部停止请求、超时（300 s）、推理线程致命错误、里程计新鲜度、安全层，然后计算并下发速度、写日志、做卡住检测。</li>
+  <li>结束：撤销授权 → 置零 → 等待推理线程退出 → 零速保持 1 s 后释放通道 → 写结果。</li>
+</ol>
+<table>
+  <tr><th>结束状态</th><th>触发条件</th></tr>
+  <tr><td><code>arrived</code></td><td>连续两次收敛预测，并完成最终停车与朝向对齐</td></tr>
+  <tr><td><code>stopped</code></td><td>Ctrl-C 或 HTTP <code>POST /stop</code></td></tr>
+  <tr><td><code>timeout</code></td><td>超过 <code>max_time_s</code></td></tr>
+  <tr><td><code>stuck</code></td><td>有运动指令（|v|≥0.05 或 |w|≥0.1）但 4 s 内位移不到 5 cm 且转角不到 0.1 rad（dry-run 时关闭）</td></tr>
+  <tr><td><code>odom_lost</code></td><td>里程计超过 0.5 s 未更新</td></tr>
+  <tr><td><code>error</code></td><td>VLA 连续失败 10 次、请求数超上限或异常</td></tr>
+</table>
+<p>同样的流程可以通过 HTTP 接口驱动：<code>POST /episode</code> 启动（已有任务运行时返回 409），<code>POST /stop</code> 停止，<code>GET /status</code> 查看实时位姿、速度、回复数、保护停止原因和最终结果。</p>
+
+<!-- ================================================================ -->
+<h2 id="s12">12. 日志、指标与调参</h2>
+<p>每次任务写 <code>logs/&lt;时间戳&gt;/events.jsonl</code>，以及提交帧的 JPEG（<code>frames/</code>）。事件类型有：<code>start</code>、<code>cmd</code>（每个控制周期的 v、w、dt、位姿、v_cap 与阶段）、<code>reply</code>（seq、是否提交、是否接受、往返延迟、推理耗时、拼接偏差、航点）、<code>protective_stop</code>、<code>resume</code>、<code>act_failed</code>、<code>exception</code>、<code>result</code>。</p>
+<p><code>python -m navgpt_g1d report &lt;日志目录&gt;</code> 会输出：</p>
+<table>
+  <tr><th>指标</th><th>含义与用途</th></tr>
+  <tr><td><code>phase_s</code></td><td>各阶段时长：running / obstacle_slow / protective_stop / resuming</td></tr>
+  <tr><td><code>mean_speed_mps</code>、<code>stall_ratio</code></td><td>行驶段平均速度；正常行驶阶段速度低于 0.03 m/s 的比例（卡顿程度）</td></tr>
+  <tr><td><code>max_accel_mps2</code>、<code>max_ang_accel_rps2</code></td><td>正常行驶阶段的最大加速度与角加速度（按控制器实际 dt 计算，不含保护急停）</td></tr>
+  <tr><td><code>latency_p50/p95_s</code>、<code>infer_p50_s</code></td><td>拍照到回复的往返延迟、服务端纯推理耗时，两者之差约为网络与编解码开销</td></tr>
+  <tr><td><code>accepted_ratio</code>、<code>committed_frames</code></td><td>回复被接受的比例；提交进历史的帧数</td></tr>
+  <tr><td><code>splice_deviation_p95_m</code></td><td>前后两次预测在前方 1 m 内的偏差，反映模型输出是否稳定</td></tr>
+</table>
+<h3>调参建议</h3>
+<table>
+  <tr><th>现象</th><th>先调什么</th></tr>
+  <tr><td>停顿比例高、断供时间长</td><td>看 <code>latency_p95_s</code>：网络慢就改善 Wi-Fi（5 GHz 专用 AP）、降低 <code>jpeg_quality</code>；推理慢就检查 5090 上的注意力实现</td></tr>
+  <tr><td>转弯外甩或蛇形</td><td>减小 <code>lookahead_time</code>，或增大 <code>w_max</code>（底盘上限 0.6）；看 <code>splice_deviation</code> 是否偏大</td></tr>
+  <tr><td>起步、刹车太猛</td><td>减小 <code>a_max</code> / <code>a_dec</code>；刹车距离 v²/(2a<sub>dec</sub>) 会随之变长</td></tr>
+  <tr><td>频繁原地转</td><td>增大 <code>rotate_enter</code>；或者 VLA 本身在给大转角，看日志里的航点</td></tr>
+  <tr><td>想提速</td><td>先提高推理频率，再按 v<sub>max</sub> ≲ 0.25 m × 频率 提高 v<sub>max</sub>，同时确认 <code>slow_dist_m</code> 足够</td></tr>
+  <tr><td>人走过时停顿过多</td><td>减小 <code>slow_dist_m</code> 或 <code>resume_clear_s</code>（以安全为前提）</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="s13">13. 验证结果</h2>
+<h3>13.1 运动学闭环仿真（<code>tests/test_navigator_sim.py</code>）</h3>
+<p>设置：L 形路线 5.5 m；模拟 VLA 按拍照时刻的真实位姿给出 8 个航点（间距 0.15 m，加噪声）；往返延迟 0.4–1.2 s，另有 8% 概率出现 2.5 s 无线卡顿；里程计 10 Hz，控制 20 Hz，v<sub>max</sub> 0.3 m/s。</p>
+<table>
+  <tr><th>随机种子</th><th class="num">0</th><th class="num">1</th><th class="num">2</th><th class="num">3</th><th class="num">4</th><th class="num">5</th></tr>
+  <tr class="hl"><td>并行推理用时 (s)</td><td class="num">26.0</td><td class="num">21.9</td><td class="num">22.4</td><td class="num">21.6</td><td class="num">27.6</td><td class="num">24.1</td></tr>
+  <tr><td>行驶平均速度 (m/s)</td><td class="num">0.24</td><td class="num">0.27</td><td class="num">0.27</td><td class="num">0.26</td><td class="num">0.25</td><td class="num">0.26</td></tr>
+  <tr><td>断供时间占比</td><td class="num">14%</td><td class="num">0%</td><td class="num">0%</td><td class="num">5%</td><td class="num">15%</td><td class="num">10%</td></tr>
+  <tr><td>stop-and-go 用时 (s)</td><td class="num">59.1</td><td class="num">59.5</td><td class="num">61.6</td><td class="num">56.8</td><td class="num">55.3</td><td class="num">57.5</td></tr>
+</table>
+<p>预测正常到达期间，所有种子的停顿比例都是 0%。种子 0 和 4 抽到了连续的 2.5 s 卡顿，机器人按设计先降速、再停车，恢复后继续。表中 stop-and-go 基线已经去掉了零速保持和中间朝向对齐，比真实的串行实现更快，实际差距会更大。</p>
+<figure>
+  <img src="assets/fig_trajectory.svg" alt="trajectory" style="max-width:560px">
+  <figcaption>图 6：种子 1 的实际轨迹。stop-and-go 每一步只看一个航点，轨迹随预测噪声左右摆动；并行推理每次都跟踪整条 8 航点路径，并在拼接处平滑过渡，轨迹贴合路线。</figcaption>
+</figure>
+
+<h3>13.2 多线程全链路仿真（<code>tests/test_episode_sim.py</code>、<code>navgpt_g1d sim</code>）</h3>
+<p>真实时间运行全部线程：仿真底盘有 0.15 s 一阶响应延迟，里程计 10 Hz 带噪声，360 线激光，有移动障碍物。</p>
+<table>
+  <tr><th>场景</th><th>结果</th><th>平滑度（正常行驶阶段）</th></tr>
+  <tr><td>L 形 5.5 m + 行人横穿</td><td>29.4 s 到达，终点误差约 3 cm；保护停止 3.0 s，恢复等待 1.2 s</td><td>停顿 0.5%，最大加速度 0.60 m/s²，最大角加速度 1.2 rad/s²</td></tr>
+  <tr><td>S 形路线</td><td>23.2 s 到达，平均 0.28 m/s；34 次推理中 17 帧提交进历史</td><td>停顿 0%，0.60 m/s²，1.2 rad/s²</td></tr>
+  <tr><td>HTTP 接口</td><td>启动后第 5 s 稳定在 0.3 m/s；重复启动返回 409；4 m 直线 17.6 s 到达</td><td>—</td></tr>
+</table>
+<p>测试共 29 项：路径拼接、跟踪器、导航调度、安全层、速度发布器（死人开关、零速保持、方向符号）、配置校验、端到端仿真。运行方式：<code>cd deploy/g1d &amp;&amp; python -m unittest discover -s tests</code>。</p>
+
+<!-- ================================================================ -->
+<h2 id="s14">14. 参数总表（<code>config/g1d.yaml</code>）</h2>
+<table>
+  <tr><th>段</th><th>参数</th><th class="num">默认</th><th>作用</th></tr>
+  <tr><td rowspan="9">tracker</td><td><code>v_max</code> / <code>w_max</code></td><td class="num">0.3 / 0.5</td><td>最大线速度 m/s / 角速度 rad/s</td></tr>
+  <tr><td><code>a_max</code> / <code>a_dec</code></td><td class="num">0.4 / 0.6</td><td>加速 / 减速限幅 m/s²</td></tr>
+  <tr><td><code>alpha_max</code></td><td class="num">1.2</td><td>角加速度限幅 rad/s²</td></tr>
+  <tr><td><code>lookahead_min</code> / <code>lookahead_time</code></td><td class="num">0.35 / 1.0</td><td>前视距离 = max(最小值, 时间×速度)</td></tr>
+  <tr><td><code>rotate_enter</code> / <code>rotate_exit</code></td><td class="num">1.0 / 0.35</td><td>原地转向滞回 rad</td></tr>
+  <tr><td><code>k_rotate</code></td><td class="num">1.5</td><td>原地转向增益</td></tr>
+  <tr><td><code>goal_tol</code> / <code>yaw_tol</code></td><td class="num">0.10 / 0.10</td><td>最终停车的位置 / 朝向容差</td></tr>
+  <tr><td><code>min_path_m</code></td><td class="num">0.08</td><td>短于此的预测视为纯转向</td></tr>
+  <tr><td colspan="3" style="color:var(--muted)">（跟踪器参数同时作用于导航调度）</td></tr>
+  <tr><td rowspan="6">navigator</td><td><code>blend_m</code> / <code>ds</code></td><td class="num">0.5 / 0.05</td><td>航向过渡长度 / 路径重采样间距 m</td></tr>
+  <tr><td><code>keyframe_m</code> / <code>keyframe_rad</code></td><td class="num">0.25 / 0.2618</td><td>视觉历史提交间距（与训练一致）</td></tr>
+  <tr><td><code>max_reply_age_s</code></td><td class="num">3.0</td><td>拍照超过此时长的回复丢弃</td></tr>
+  <tr><td><code>starve_s</code> / <code>stop_s</code></td><td class="num">1.5 / 3.0</td><td>无回复限速 / 停车阈值 s</td></tr>
+  <tr><td><code>starve_speed</code></td><td class="num">0.1</td><td>断供时速度上限</td></tr>
+  <tr><td><code>arrival_hits</code></td><td class="num">2</td><td>连续收敛次数判定到达</td></tr>
+  <tr><td rowspan="5">safety</td><td><code>half_width_m</code> / <code>margin_m</code></td><td class="num">0.27 / 0.10</td><td>走廊半宽 / 余量</td></tr>
+  <tr><td><code>front_m</code></td><td class="num">0.30</td><td>激光中心到车头（需实测）</td></tr>
+  <tr><td><code>stop_dist_m</code> / <code>slow_dist_m</code> / <code>react_s</code></td><td class="num">0.35 / 1.20 / 0.3</td><td>停止区、减速区、反应时间</td></tr>
+  <tr><td><code>rotate_radius_m</code> / <code>rotate_margin_m</code></td><td class="num">0.34 / 0.08</td><td>旋转圆</td></tr>
+  <tr><td><code>scan_timeout_s</code> / <code>resume_clear_s</code></td><td class="num">0.5 / 1.0</td><td>激光过期、恢复前需清空的时长</td></tr>
+  <tr><td rowspan="3">base</td><td><code>publish_hz</code></td><td class="num">30</td><td>cmd_vel 发布频率</td></tr>
+  <tr><td><code>cmd_timeout_s</code> / <code>zero_hold_s</code></td><td class="num">0.3 / 1.0</td><td>死人开关 / 结束零速保持</td></tr>
+  <tr><td><code>cmd_x_sign</code> / <code>cmd_yaw_sign</code> / <code>odom_yaw_sign</code></td><td class="num">1 / 1 / 1</td><td>方向符号，用 <code>smoke</code> 子命令校验</td></tr>
+  <tr><td rowspan="3">episode</td><td><code>control_hz</code></td><td class="num">20</td><td>控制频率</td></tr>
+  <tr><td><code>max_time_s</code> / <code>odom_timeout_s</code></td><td class="num">300 / 0.5</td><td>任务时限、里程计过期</td></tr>
+  <tr><td><code>stuck_time_s</code> / <code>stuck_dist_m</code></td><td class="num">4.0 / 0.05</td><td>卡住检测</td></tr>
+  <tr><td>camera</td><td><code>latency_s</code></td><td class="num">0.06</td><td>拍照到接收的延迟，用于查拍照时刻位姿（需实测）</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="s15">15. 局限与后续</h2>
+<ul>
+  <li><b>里程计跳变</b>：参考路径锚定在里程计坐标里。如果 slamware 的位姿在重定位时跳变，已锚定的路径也会跟着错位。建议控制用连续的里程计；或者在 <code>PoseBuffer</code> 里检测跳变（例如 0.1 s 内超过 0.2 m），检测到就清空参考路径重新开始。目前代码没有做这项检测。</li>
+  <li><b>仅前向避障</b>：安全层只检查前向走廊和旋转圆，没有建图，也没有绕行，遇到持续阻挡会等待或判定卡住；绕行交给 VLA 的下一次预测，或交给 Planner。</li>
+  <li><b>仿真不等于真机</b>：上面的数字来自运动学和多线程仿真。真实 VLA 输出的抖动、底盘的响应延迟与打滑、激光噪声，都要上机后用 <code>report</code> 评估。</li>
+  <li><b>Planner 监督</b>：当前是 VLA 直驱完成任务。论文中的事件触发审查、回退、局部修正，可以在 HTTP 接口之上接入 Planner 来实现。</li>
+</ul>
+</main>
+</body>
+</html>

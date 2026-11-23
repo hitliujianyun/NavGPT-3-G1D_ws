@@ -4,6 +4,13 @@
 
 部署工程：[deploy/g1d/README.md](deploy/g1d/README.md)（通过 `rt/cmd_vel_no_limit` 控制底盘、并行推理、平滑轨迹的完整 VLN 执行工程）
 
+专题文档：
+
+- [docs/并行推理与平滑轨迹_功能详解.html](docs/并行推理与平滑轨迹_功能详解.html)：推理与执行并行、两次推理结果的接续、路径跟踪、安全与容错
+- [docs/VLA训练工程_功能详解.html](docs/VLA训练工程_功能详解.html)：navgpt_sft 的数据格式、标签生成、LoRA 训练、评估与合并
+- [docs/5090实机移植适配指南.md](docs/5090实机移植适配指南.md)：移植到 RTX 5090 主机 + G1-D 实机需要的安装、配置、实测与补强
+- 文档插图由 `python docs/tools/make_figures.py` 调用部署与训练代码重新生成
+
 | 目录 | 内容 |
 |---|---|
 | `docs/papers/` | 论文 PDF（arXiv:2610.10787 v2） |
