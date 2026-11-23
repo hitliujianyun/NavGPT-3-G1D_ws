@@ -1,0 +1,12 @@
+[submodule "code/NavGPT-3"]
+	path = code/NavGPT-3
+	url = https://github.com/metacognitionai/NavGPT-3.git
+[submodule "code/unitree_sdk2"]
+	path = code/unitree_sdk2
+	url = https://github.com/unitreerobotics/unitree_sdk2.git
+[submodule "code/unitree_sdk2_python"]
+	path = code/unitree_sdk2_python
+	url = https://github.com/unitreerobotics/unitree_sdk2_python.git
+[submodule "code/teleimager"]
+	path = code/teleimager
+	url = https://github.com/unitreerobotics/teleimager.git
