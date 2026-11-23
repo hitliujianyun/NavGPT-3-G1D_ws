@@ -1,0 +1,35 @@
+# NavGPT3-8B on G1-D data. One 80 GB GPU, or several with
+#   accelerate launch --num_processes N -m navgpt_sft train --config train/configs/g1d_lora_8b.yaml
+# On a single RTX 5090 (32 GB) it is tight; start with g1d_lora_4b.yaml there.
+
+model:
+  checkpoint: models/NavGPT3-8B
+  gradient_checkpointing: true
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+
+data:
+  train:
+    - {name: g1d_teleop, manifest: data/sft/g1d_teleop/train.jsonl, kind: nav, weight: 0.6}
+    - {name: g1d_runs, manifest: data/sft/g1d_runs/train.jsonl, kind: nav, weight: 0.1}
+    - {name: sim_replay, manifest: data/sft/sim_replay/train.jsonl, kind: nav, weight: 0.2}
+    - {name: scene_vl, manifest: data/sft/scene_vl/train.jsonl, kind: vl, weight: 0.1}
+  val:
+    - data/sft/g1d_teleop/val.jsonl
+
+nav:
+  view_num: 1
+  keyframe_rad: 0.2618
+  scale: [1.0, 0.433, 2.0944]
+
+train:
+  output_dir: outputs/sft/g1d_lora_8b
+  epochs: 3
+  batch_size: 1
+  grad_accum: 16                     # global batch = grad_accum x GPUs
+  lr_lora: 1.0e-4
+  lr_action_head: 1.0e-4
+  num_workers: 6

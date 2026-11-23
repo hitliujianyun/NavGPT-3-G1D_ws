@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "navgpt-sft"
+version = "0.1.0"
+description = "LoRA + action-head fine-tuning of NavGPT VLA (NavGPT3) with a frozen vision tower"
+requires-python = ">=3.10"
+# Installed into the NavGPT-3 VLA environment (code/NavGPT-3/.envs/vla), which
+# already provides torch, transformers==5.18.0, accelerate and the navgpt package.
+dependencies = [
+  "numpy>=1.24",
+  "pillow>=10.0.0",
+  "pyyaml>=6.0",
+  "safetensors>=0.8.0",
+  "accelerate>=1.7.0",
+  "peft>=0.22.0",
+]
+
+[tool.setuptools]
+packages = ["navgpt_sft"]

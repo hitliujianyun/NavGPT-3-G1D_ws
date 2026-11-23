@@ -1,0 +1,77 @@
+# NavGPT3-4B on G1-D data: LoRA on the language model, full action head, frozen vision tower.
+# Fits one RTX 5090 (32 GB) at batch size 1. Run from the workspace root:
+#   python -m navgpt_sft train --config train/configs/g1d_lora_4b.yaml
+# (with train/ on PYTHONPATH, or after `pip install -e train`).
+
+model:
+  checkpoint: models/NavGPT3-4B
+  attn_implementation: null          # flash_attention_2 when installed, else sdpa
+  gradient_checkpointing: true
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+data:
+  train:
+    - name: g1d_teleop               # teleoperated demonstrations (dense frames + odometry)
+      manifest: data/sft/g1d_teleop/train.jsonl
+      kind: nav
+      weight: 0.6
+    - name: g1d_runs                 # successful autonomous runs: navgpt_sft from-g1d-logs
+      manifest: data/sft/g1d_runs/train.jsonl
+      kind: nav
+      weight: 0.1
+    - name: sim_replay               # single-view Habitat R2R-CE/RxR-CE, against forgetting
+      manifest: data/sft/sim_replay/train.jsonl
+      kind: nav
+      weight: 0.2
+    - name: scene_vl                 # landmark QA / grounding on deployment-site images
+      manifest: data/sft/scene_vl/train.jsonl
+      kind: vl
+      weight: 0.1
+  val:
+    - data/sft/g1d_teleop/val.jsonl
+
+nav:
+  view_num: 1                        # serve_vla.py: front-only history
+  keyframe_m: 0.25                   # = deploy/g1d/config/g1d.yaml navigator.keyframe_m
+  keyframe_rad: 0.2618               # = navigator.keyframe_rad
+  scale: [1.0, 0.433, 2.0944]        # habitat_nav, so serve_vla.py needs no change
+  max_sample_size: 16
+  p_latest: 0.0
+  p_off_keyframe: 0.5
+  max_nav_vis_tokens: 3072           # = serve_vla.py --visual-token-budget
+  temporal_decay: 2.0
+  min_tokens_per_image: 4
+  max_tokens_per_image: 196
+  codec_enabled: true
+  p_random_budget: 0.3
+  random_total_tokens: [1024, 4096]
+  random_temporal_decay: [1.0, 3.0]
+  random_max_tokens_per_image: [128, 256]
+  color_jitter: 0.1
+  resample: {stop: 2.0, turn: 2.0, straight: 1.0}
+  vl_tokens_per_image: 256
+
+train:
+  output_dir: outputs/sft/g1d_lora_4b
+  seed: 0
+  epochs: 3
+  samples_per_epoch: null            # default: total samples of all sources
+  batch_size: 1
+  grad_accum: 16
+  lr_lora: 1.0e-4
+  lr_action_head: 1.0e-4             # the head is already trained; the paper's 1e-3 was from scratch
+  weight_decay: 0.0
+  warmup_ratio: 0.03
+  max_grad_norm: 1.0
+  ntp_weight: 1.0
+  num_workers: 4
+  log_steps: 10
+  eval_steps: 200
+  save_steps: 500
+  save_total_limit: 3
+  resume: null

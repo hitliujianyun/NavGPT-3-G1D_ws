@@ -4,8 +4,9 @@ models/*
 data/*
 !data/.gitkeep
 
-# 运行日志
+# 运行日志与训练输出
 logs/
+outputs/
 
 # Python
 __pycache__/

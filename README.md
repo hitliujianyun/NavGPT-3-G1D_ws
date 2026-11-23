@@ -11,6 +11,7 @@
 | `docs/assets/` | 文档引用的论文插图 |
 | `code/` | 上游仓库，保持原样：`NavGPT-3`、`unitree_sdk2`、`unitree_sdk2_python`、`teleimager` |
 | `deploy/g1d/` | G1-D 部署工程 navgpt_g1d（机器人侧运行时 + 5090 上的 VLA 服务 + 仿真 + 测试） |
+| `train/` | VLA 后训练 navgpt_sft（LoRA 语言模型 + 动作头全训 + 视觉编码器冻结），合并后可直接部署，见 [train/README.md](train/README.md) |
 | `scripts/` | GPU 服务器环境安装（自动适配 RTX 5090）、权重下载 |
 | `models/` | 模型权重（GPU 服务器上下载，不入库） |
 | `data/` | MP3D / R2R-CE / RxR-CE 数据（不入库） |

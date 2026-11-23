@@ -28,6 +28,8 @@ uv pip install --python .envs/vla/bin/python $TORCH_SPEC --index-url "$TORCH_IND
 grep -vE '^(torch|torchvision)\b' requirements-vla.txt > /tmp/navgpt3-requirements-vla.txt
 uv pip install --python .envs/vla/bin/python -r /tmp/navgpt3-requirements-vla.txt
 uv pip install --python .envs/vla/bin/python --no-deps --editable .
+# Fine-tuning (train/navgpt_sft): adds PEFT to the VLA environment.
+uv pip install --python .envs/vla/bin/python --editable ../../train
 
 .envs/vla/bin/python - <<'EOF'
 import torch
