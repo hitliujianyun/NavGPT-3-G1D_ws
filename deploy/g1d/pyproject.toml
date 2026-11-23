@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "navgpt-g1d"
+version = "0.1.0"
+description = "NavGPT-3 VLA navigation on the Unitree G1-D via /cmd_vel_no_limit, with overlapped inference"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy>=1.17",
+  "pyyaml>=5.1",
+  "requests>=2.22",
+]
+
+[project.optional-dependencies]
+# Robot side: camera (pyzmq + OpenCV; on Jetson prefer the system OpenCV) and
+# DDS (install unitree_sdk2py from code/unitree_sdk2_python with `pip install -e`).
+robot = ["pyzmq>=19", "opencv-python-headless>=4.2"]
+
+[tool.setuptools]
+packages = ["navgpt_g1d"]
