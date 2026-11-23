@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NavGPT-3 详细解读与宇树 G1-D 部署方案</title>
+<style>
+  :root {
+    --bg: #fbfbfd; --fg: #1d2330; --muted: #5b6475; --line: #e3e6ee;
+    --accent: #0f766e; --accent-soft: #e6f4f2; --warn: #b45309; --warn-soft: #fdf3e5;
+    --bad: #b91c1c; --bad-soft: #fdecec; --code-bg: #f3f4f8; --side: 300px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font: 15px/1.75 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         color: var(--fg); background: var(--bg); }
+  nav#toc { position: fixed; top: 0; left: 0; bottom: 0; width: var(--side); overflow-y: auto;
+            padding: 22px 18px 40px; background: #fff; border-right: 1px solid var(--line); font-size: 13.5px; }
+  nav#toc h2 { font-size: 15px; margin: 0 0 10px; }
+  nav#toc ol { padding-left: 18px; margin: 0; }
+  nav#toc li { margin: 3px 0; }
+  nav#toc ol ol { padding-left: 14px; font-size: 12.8px; }
+  nav#toc a { color: var(--fg); text-decoration: none; }
+  nav#toc a:hover { color: var(--accent); }
+  main { margin-left: var(--side); padding: 36px 56px 120px; max-width: calc(var(--side) + 1100px); }
+  h1 { font-size: 30px; line-height: 1.3; margin: 0 0 6px; }
+  h2 { font-size: 23px; margin: 56px 0 14px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 18px; margin: 32px 0 10px; }
+  h4 { font-size: 15.5px; margin: 22px 0 8px; }
+  p { margin: 8px 0 12px; }
+  a { color: var(--accent); }
+  .subtitle { color: var(--muted); margin: 0 0 18px; }
+  .meta { font-size: 13px; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 18px; font-size: 13.8px; background: #fff; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f4f6fa; font-weight: 600; }
+  tr.hl td { background: var(--accent-soft); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace; font-size: 12.8px;
+         background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: #1e2230; color: #e6e9f2; padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+        font-size: 12.8px; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 10px 16px;
+             border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .callout.bad { border-color: var(--bad); background: var(--bad-soft); }
+  .callout b:first-child { display: block; margin-bottom: 2px; }
+  .eq { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; margin: 10px 0 14px;
+        font-family: "Cambria Math", "Times New Roman", serif; font-size: 16px; overflow-x: auto; }
+  .eq .tag { float: right; color: var(--muted); font-family: inherit; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 14px 0; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card .k { font-size: 12.5px; color: var(--muted); }
+  .card .v { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .card .d { font-size: 12.5px; color: var(--muted); }
+  figure { margin: 16px 0 22px; }
+  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .tree { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px;
+          font-family: "Cascadia Code", Consolas, monospace; font-size: 12.8px; white-space: pre; overflow-x: auto; line-height: 1.6; }
+  .pill { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 99px; background: var(--code-bg); margin-right: 4px; }
+  .pill.ok { background: #dcfce7; color: #166534; } .pill.todo { background: #fef3c7; color: #92400e; }
+  .pill.no { background: #fee2e2; color: #991b1b; }
+  svg text { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  @media (max-width: 1000px) { nav#toc { position: static; width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+                               main { margin-left: 0; padding: 24px 18px 80px; } }
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">一页纸总结</a></li>
+    <li><a href="#s2">资料来源与本地存档</a></li>
+    <li><a href="#s3">背景：VLN 与 NavGPT 系列</a></li>
+    <li><a href="#s4">系统总体架构</a>
+      <ol><li><a href="#s4-1">三层结构</a></li><li><a href="#s4-2">职责划分</a></li></ol></li>
+    <li><a href="#s5">Harness：上下文与空间工具</a>
+      <ol><li><a href="#s5-1">Planner 决策形式化</a></li><li><a href="#s5-2">八个工具</a></li><li><a href="#s5-3">委托执行与返回证据</a></li></ol></li>
+    <li><a href="#s6">Runtime：线程与运动授权</a>
+      <ol><li><a href="#s6-1">前台线程与控制转移</a></li><li><a href="#s6-2">权限版本与命令过滤</a></li><li><a href="#s6-3">优先级与交接策略</a></li></ol></li>
+    <li><a href="#s7">NavGPT VLA</a>
+      <ol><li><a href="#s7-1">模型结构与输出</a></li><li><a href="#s7-2">Codec 视觉 token 分配</a></li><li><a href="#s7-3">训练数据</a></li><li><a href="#s7-4">训练配置与损失</a></li></ol></li>
+    <li><a href="#s8">Harness 的递归自改进（RSI）</a></li>
+    <li><a href="#s9">实验结果</a>
+      <ol><li><a href="#s9-1">主结果</a></li><li><a href="#s9-2">工具与 VLA 消融</a></li><li><a href="#s9-3">检查频率与视觉提示</a></li><li><a href="#s9-4">跨任务、Codec 与扩展</a></li></ol></li>
+    <li><a href="#s10">论文中的真机部署（Go2）</a></li>
+    <li><a href="#s11">代码解读</a>
+      <ol><li><a href="#s11-1">仓库结构</a></li><li><a href="#s11-2">VLA 推理链路</a></li><li><a href="#s11-3">服务接口</a></li><li><a href="#s11-4">配置与命令</a></li></ol></li>
+    <li><a href="#s12">仿真复现指南</a></li>
+    <li><a href="#s13">宇树 G1-D 部署方案</a>
+      <ol><li><a href="#s13-1">G1-D 硬件要点</a></li><li><a href="#s13-2">差距分析</a></li><li><a href="#s13-3">部署架构</a></li><li><a href="#s13-4">关键适配</a></li><li><a href="#s13-5">分阶段计划</a></li><li><a href="#s13-6">完整部署工程</a></li><li><a href="#s13-7">风险与待确认项</a></li><li><a href="#s13-8">推理与执行并行设计</a></li></ol></li>
+    <li><a href="#s14">本项目目录结构</a></li>
+    <li><a href="#s15">参考文献与链接</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>NavGPT-3 详细解读与宇树 G1-D 部署方案</h1>
+<p class="subtitle">NavGPT-3: Harnessing Context in a Hierarchical Navigation Runtime（arXiv:2610.10787，v2 2026-10-12）</p>
+<p class="meta">整理日期：2026-11-20 · 依据：论文全文 v2、官方仓库 <code>metacognitionai/NavGPT-3</code>（commit f712329）、Hugging Face 模型卡、宇树 G1-D 官方文档与 unitree_sdk2 源码</p>
+
+<!-- ============================================================ -->
+<h2 id="s1">1. 一页纸总结</h2>
+
+<p><b>NavGPT-3 是一个“大模型规划 + 导航 VLA 执行”的分层视觉语言导航系统。</b>上层 Planner 是前沿大模型（GPT-6 Astra 或 Claude Opus 5），通过一个称为 <b>harness</b> 的接口调用观测、地图、回退等空间工具，或把一段导航指令委托给下层 8B 的 <b>NavGPT VLA</b> 去高频执行；VLA 每步根据指令和视觉历史预测 8 个局部航点。harness 之上还有一个类操作系统的 <b>runtime</b>，把推理、执行、监控作为线程调度，并决定哪个线程拥有“让机器人动”的权限，从而实现中断和安全急停。</p>
+
+<div class="grid">
+  <div class="card"><div class="k">RxR-CE 成功率（完整系统）</div><div class="v">90.43%</div><div class="d">人类 90.4%，首次达到人类水平</div></div>
+  <div class="card"><div class="k">R2R-CE 成功率（完整系统）</div><div class="v">81.51%</div><div class="d">新 SOTA</div></div>
+  <div class="card"><div class="k">VLA 8B 单独</div><div class="v">76.94 / 82.39</div><div class="d">R2R-CE / RxR-CE SR</div></div>
+  <div class="card"><div class="k">最小反应时间</div><div class="v">0.5–1 s</div><div class="d">VLA 执行时；纯大模型决策 3–19 s</div></div>
+  <div class="card"><div class="k">VLA 训练数据</div><div class="v">19.28M</div><div class="d">83 个来源，11 个数据族</div></div>
+  <div class="card"><div class="k">Go2 真机</div><div class="v">83.3% / 180 ms</div><div class="d">路线修正 SR / p95 急停延迟</div></div>
+</div>
+
+<div class="callout warn"><b>对 G1-D 部署最重要的三点</b>
+① 官方<b>尚未发布</b>真机运行时（基于 ZEOS 的 Unitree 部署代码，README TODO 未勾选），已开源的是 VLA 推理、harness 和 Habitat 仿真评测；
+② 论文只在 <b>Unitree Go2（四足）</b>上做过真机实验，用单个前视 RGB；G1-D 是<b>轮式差速底盘</b>，需要自行把航点转成 <code>(vx, vyaw)</code>；
+③ G1-D 机载只有 <b>Jetson Orin NX 16GB</b>，放不下 8B 模型（BF16 权重 17.6 GB），论文板载方案用的是 Jetson Thor + FP8 + TensorRT，所以 G1-D 上应采用<b>远程 GPU 服务器推理</b>。</div>
+
+<p>本项目已完成：论文/网页/代码全部下载存档；通读论文与源码；在 <code>deploy/g1d/</code> 建好了完整部署工程 navgpt_g1d：通过 <code>rt/cmd_vel_no_limit</code> 控制底盘，推理与运动并行，轨迹平滑拼接，带激光安全停止与自动恢复、HTTP 控制接口、上机自检和全链路仿真，29 项测试通过。详见 <a href="#s13-6">13.6 节</a> 与 <a href="#s13-8">13.8 节</a>。</p>
+
+<!-- ============================================================ -->
+<h2 id="s2">2. 资料来源与本地存档</h2>
+<table>
+  <tr><th>资料</th><th>在线地址</th><th>本地路径</th></tr>
+  <tr><td>论文 PDF（v2）</td><td><a href="https://arxiv.org/abs/2610.10787">arXiv:2610.10787</a></td><td><code>docs/papers/NavGPT-3_arXiv_2610.10787.pdf</code></td></tr>
+  <tr><td>论文全文文本（含附录）</td><td><a href="https://arxiv.org/html/2610.10787">arXiv HTML</a></td><td><code>docs/web/arxiv_2610.10787_fulltext_v2.md</code>、<code>arxiv_2610.10787_html.md</code></td></tr>
+  <tr><td>官方代码</td><td><a href="https://github.com/metacognitionai/NavGPT-3">github.com/metacognitionai/NavGPT-3</a>（Apache-2.0）</td><td><code>code/NavGPT-3/</code></td></tr>
+  <tr><td>项目主页</td><td><a href="https://metacognitionai.github.io/NavGPT3/">metacognitionai.github.io/NavGPT3</a></td><td><code>docs/web/project_page_and_model_cards.md</code></td></tr>
+  <tr><td>模型权重</td><td><a href="https://huggingface.co/Metacognition-AI/NavGPT3-8B">NavGPT3-8B</a> · <a href="https://huggingface.co/Metacognition-AI/NavGPT3-4B">NavGPT3-4B</a>（AGPL-3.0）</td><td><code>models/</code>（用 <code>scripts/download_weights.sh</code> 在 GPU 服务器下载）</td></tr>
+  <tr><td>官方博客</td><td><a href="https://metacognitionai.com/research/navgpt-3-reaches-human-level-performance-in-vision-and-language-navigation/">Metacognition Research</a></td><td><code>docs/web/project_page_and_model_cards.md</code></td></tr>
+  <tr><td>G1-D 产品与开发文档</td><td><a href="https://www.unitree-robot.com/cn/G1-D/">产品页</a> · <a href="https://support.unitree.com/home/zh/G1D_Developer">开发者文档</a></td><td><code>docs/web/unitree_g1d_reference.md</code></td></tr>
+  <tr><td>宇树 SDK</td><td><a href="https://github.com/unitreerobotics/unitree_sdk2">unitree_sdk2</a> · <a href="https://github.com/unitreerobotics/unitree_sdk2_python">unitree_sdk2_python</a></td><td><code>code/unitree_sdk2/</code>、<code>code/unitree_sdk2_python/</code></td></tr>
+  <tr><td>宇树图像服务</td><td><a href="https://github.com/unitreerobotics/teleimager">teleimager</a></td><td><code>code/teleimager/</code></td></tr>
+</table>
+<div class="callout"><b>数据出入</b>官方博客称 “NavGPT VLA 8B … 78.2% on Room-Across-Room”，与论文 Table 6 和模型卡的 82.39 SR 不一致；本文一律以论文为准。</div>
+
+<!-- ============================================================ -->
+<h2 id="s3">3. 背景：VLN 与 NavGPT 系列</h2>
+<p><b>视觉语言导航（VLN）</b>要求智能体在没见过的环境中，按自然语言指令（如“经过沙发、上楼、停在走廊桌子旁的第二扇门”）走到目的地。最早在离散导航图上（R2R，Anderson et al. 2018；RxR，Ku et al. 2020），之后发展到连续环境 VLN-CE（Krantz et al. 2020），智能体需要真实的连续运动与避障。</p>
+<table>
+  <tr><th>工作</th><th>会议</th><th>核心思想</th></tr>
+  <tr><td>NavGPT</td><td>AAAI 2024</td><td>把观测转成文本，让 LLM 零样本逐步推理并决定每一步动作，不在动作数据上训练</td></tr>
+  <tr><td>NavGPT-2</td><td>ECCV 2024</td><td>同一表征上解耦语言头与动作头，既保留推理又训练一个更快更准的策略；但训练无法让推理与动作完全对齐</td></tr>
+  <tr><td><b>NavGPT-3</b></td><td>arXiv 2026</td><td>在<b>系统层面</b>结合：前沿推理模型 + 训练好的 VLA 策略，用 harness 连接，用类 OS 的 runtime 协调</td></tr>
+</table>
+<p>论文的出发点：经过长程智能体强化学习训练的语言模型擅长推理、调用工具、追求多步目标，但物理执行“按世界的时钟而不是模型的时钟运行”——观测在推理期间不断到来，运动在决策后继续，危险可能要求在推理结束前就停下。动作策略又比规划模型小得多、指令跟随能力弱，长程会漂移，需要回报可供检查的证据。因此需要：用于决策的上下文、用于行动的空间工具、用于记忆的持久状态、用于修正路线的执行证据，以及在真机上让推理/执行/监控异步推进的运行时。</p>
+
+<!-- ============================================================ -->
+<h2 id="s4">4. 系统总体架构</h2>
+<figure>
+  <img src="assets/teaser.png" alt="NavGPT-3 overview">
+  <figcaption>图 1（论文 Figure 1）：(a) runtime 抽象：Planner、VLA 与空间工具；(b) 同步工具调用 vs 异步线程协调；(c) RxR-CE 上的历年性能，NavGPT-3 达到人类水平。</figcaption>
+</figure>
+
+<h3 id="s4-1">4.1 三层结构</h3>
+<table>
+  <tr><th>层</th><th>组件</th><th>作用</th><th>开源状态</th></tr>
+  <tr><td>交互层</td><td>NavGPT VLA（4B / 8B）</td><td>根据指令与视觉历史预测 8 个局部航点，1–2 Hz 高频执行</td><td><span class="pill ok">已开源</span> 推理代码 + 权重</td></tr>
+  <tr><td>Harness 层</td><td>NavGPT Planner + MCP 工具服务器</td><td>构造上下文、提供 8 个空间工具、维护路线/节点状态、校验并执行工具调用、返回证据</td><td><span class="pill ok">已开源</span> Claude Agent SDK / Codex SDK 两种 Planner 运行时</td></tr>
+  <tr><td>部署运行时层</td><td>NavGPT-3 Runtime（基于 ZEOS）</td><td>逻辑线程生命周期、调度、权限、运动授权</td><td><span class="pill no">未开源</span> “将在单独仓库发布 Unitree 部署代码”</td></tr>
+</table>
+
+<h3 id="s4-2">4.2 职责划分（论文 Figure 14）</h3>
+<table>
+  <tr><th>职责</th><th>组件与角色</th></tr>
+  <tr><td>线程协调</td><td>Runtime：调度线程、管理权限、控制运动授权</td></tr>
+  <tr><td>导航决策</td><td>Planner：解读证据、选择工具、判断是否到达</td></tr>
+  <tr><td>上下文构造</td><td>Harness：选择并渲染给模型看的图像与状态</td></tr>
+  <tr><td>持久导航状态</td><td>Harness：路线引用、节点与标注</td></tr>
+  <tr><td>工具校验</td><td>Harness：验证请求，执行被允许的工具调用</td></tr>
+  <tr><td>底层导航</td><td>VLA：根据视觉历史预测航点</td></tr>
+  <tr><td>物理执行</td><td>Environment（仿真器或机器人）：执行运动，报告感知与碰撞</td></tr>
+</table>
+<p>关键设计：<b>VLA 停下只结束一次委托，不结束任务</b>；只有 Planner 调用 <code>terminate_episode</code> 才结束 episode。Planner 不能通过指令新增工具或直接修改导航状态，“注册即能力边界”。</p>
+
+<!-- ============================================================ -->
+<h2 id="s5">5. Harness：上下文与空间工具</h2>
+
+<h3 id="s5-1">5.1 Planner 决策形式化</h3>
+<div class="eq">a<sub>k</sub> ~ π<sub>Planner</sub>( · | C<sub>k</sub>, 𝒯<sub>k</sub> )<span class="tag">(1)</span></div>
+<p>第 k 次调用时，C<sub>k</sub> 是 harness 提供的上下文，𝒯<sub>k</sub> 是允许的工具集合，a<sub>k</sub> 是带参数的工具调用。同步实现中每个循环为：</p>
+<div class="eq">C<sub>k</sub> = Context<sub>main</sub>(S<sub>k</sub>, H<sub>k</sub>, 𝒯<sub>k</sub>)，&nbsp; a<sub>k</sub> ~ π<sub>Planner</sub>(· | C<sub>k</sub>, 𝒯<sub>k</sub>)，&nbsp; (S<sub>k+1</sub>, E<sub>k</sub>) = Execute(S<sub>k</sub>, a<sub>k</sub>)<span class="tag">(7)</span></div>
+<p>E<sub>k</sub> 是返回证据（路线关键帧、终点视图、执行状态、地图等）。一次 VLA rollout 可以跨越两次 Planner 调用之间的许多观测与运动步。</p>
+
+<h3 id="s5-2">5.2 八个工具（论文 Table 4，代码 <code>navgpt/planner/tools/mcp_tools.py</code>）</h3>
+<table>
+  <tr><th>组</th><th>工具名</th><th>代码函数</th><th>对状态的影响</th><th>返回给 Planner</th></tr>
+  <tr><td rowspan="4">Basic</td><td><code>observe_forward()</code></td><td><code>observe</code></td><td>无</td><td>当前前视 RGB，用于细粒度语义检查</td></tr>
+  <tr><td><code>observe_panorama()</code></td><td><code>look_around</code></td><td>更新已观测覆盖，不动位姿</td><td>四个带标注视图（方位、净空、位姿位移、节点信息）</td></tr>
+  <tr><td><code>navigate_relative(turn_deg, distance_m)</code></td><td><code>move</code></td><td>执行经校验的局部转向+平移</td><td>实际运动状态、终点全景、附近节点候选</td></tr>
+  <tr><td><code>terminate_episode(where)</code></td><td><code>arrive</code></td><td>可选先回到某节点，然后 STOP</td><td>停止/返回状态；不可撤销</td></tr>
+  <tr><td>VLA</td><td><code>navigate_by_instruction(instruction)</code></td><td><code>vla_navigate</code></td><td>跑一次 VLA rollout；VLA 保留历史</td><td>最多 8 个路线关键帧、终点全景、可选地图、执行状态</td></tr>
+  <tr><td>Map</td><td><code>observe_map()</code></td><td><code>local_map</code></td><td>更新已观测覆盖</td><td>只含“已看到区域”的俯视图、地图状态、按路线排序的节点表</td></tr>
+  <tr><td rowspan="2">Backtrack</td><td><code>navigate_to_node(target)</code></td><td><code>go</code></td><td>回到访问过的节点或最近 rollout 的某航点</td><td>终点全景、地图、返回状态、节点表</td></tr>
+  <tr><td><code>annotate_node(name, caption, …)</code></td><td><code>add_place</code></td><td>给已有节点贴标签</td><td>标注状态、节点表</td></tr>
+</table>
+<p>另有两个只在“无 VLA”配置中使用的工具：<code>navigate_primitive(actions)</code>（0 停、1 前进 0.25 m、2/3 转 15°）和 <code>observe_node(place)</code>。地图严格只画 RGB-D 真正测到的格子，<b>未知区域永远不会被当成可通行</b>；节点图由只增不减的行走路径导出，不读取场景语义，也不泄露目标或参考路径。</p>
+
+<h3 id="s5-3">5.3 委托执行与返回证据</h3>
+<p><code>vla_navigate</code> 的实际逻辑（<code>mcp_tools.py</code> 第 1082 行起）：</p>
+<ol>
+  <li>确定路线指令：显式参数 &gt; 暂停中的活动路线 &gt; 原始 episode 指令；</li>
+  <li>每步取四视角全景 → 调 VLA <code>/act</code> → 得到目标位姿（由第 2 个航点 <code>navigation[1]</code> 组合而来）→ 调环境 <code>teleport</code>；</li>
+  <li>VLA 永远不会主动输出 STOP；客户端用“最后一个航点距离 &lt; 0.25 m 且转角 &lt; 30°”判定为到达信号，<b>连续两次</b>命中才停（继承自 VLNCE-EVAL）；</li>
+  <li>结束后从整段轨迹中<b>均匀采样</b>最多 8 个前视关键帧（保证 Planner 能看到中段），再加终点四视角全景和地图返回给 Planner。</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="s6">6. Runtime：线程与运动授权</h2>
+<figure>
+  <img src="assets/runtime_sequence.png" alt="Runtime sequence">
+  <figcaption>图 2（论文 Figure 2）：(A) 后台线程审查路线并触发中断，主线程暂停，授权交给工具修复后再交回 VLA；(B) 安全监控线程撤销授权（f=⊥），推理可以继续，但恢复运动需要新的感知和新的授权。绿色实线为运动授权。</figcaption>
+</figure>
+
+<h3 id="s6-1">6.1 前台线程与控制转移</h3>
+<div class="eq">f<sub>ℓ+1</sub> = σ(S<sub>ℓ</sub>, f<sub>ℓ</sub>, e<sub>ℓ</sub>)<span class="tag">(2)</span></div>
+<div class="eq">eligible<sub>ℓ</sub>(j, a) = 𝟙[ j = f<sub>ℓ</sub> ∧ a ∈ 𝒫<sub>j</sub> ]<span class="tag">(3)</span></div>
+<p>f<sub>ℓ</sub> 是事件序号 ℓ 时的前台线程（⊥ 表示无人持有），e<sub>ℓ</sub> 是到来的事件（如中断），σ 用预设优先级决定保留、转移或撤销授权。线程有自己的上下文、工具和权限（Eq. 6：角色、工作历史、生命周期状态、可读/可写集合）。<b>运动授权不独占计算或感知</b>：线程内部调用 Planner 或 VLA 不需要切换。</p>
+
+<h3 id="s6-2">6.2 权限版本与最终命令过滤</h3>
+<div class="eq">Σ<sub>o</sub> G<sub>o</sub>(t) ≤ 1，&nbsp; eligible(u<sub>o</sub>, t) = G<sub>o</sub>(t) · 𝟙[version(u<sub>o</sub>) = g(t)] · 𝟙[preconditions(u<sub>o</sub>, S(t))]<span class="tag">(9)</span></div>
+<div class="eq">u<sub>robot</sub>(t) = u<sub>stop</sub>，若 p<sub>stop</sub>(t)=1 或没有合格命令；否则 Protect(O<sub>phys</sub>(t), u<sub>task</sub>(t))<span class="tag">(10)</span></div>
+<p>每次撤销或替换授权，版本号 g(t) 递增；每条命令带签发时的版本号。于是<b>迟到的模型输出或暂停前排队的航点不能重新获得授权</b>。保护性停止标志 p<sub>stop</sub> 一旦置位就保持，直到显式清除；清除后也不会自动恢复运动，需要刷新状态并重新授权。只有 Planner 能判定到达，但保护通路可以无视该决定阻止运动。</p>
+
+<h3 id="s6-3">6.3 优先级与交接策略（附录 B.6）</h3>
+<table>
+  <tr><th>优先级（高→低）</th><th>事件</th><th>处理</th></tr>
+  <tr><td>1</td><td>保护性停止、控制回路超时</td><td>立即撤销授权并递增版本；推理可继续</td></tr>
+  <tr><td>2</td><td>episode 限制</td><td>撤销运动</td></tr>
+  <tr><td>3</td><td>操作完成</td><td>自然结束优先于同时到达的定时审查</td></tr>
+  <tr><td>4</td><td>路线审查请求</td><td>同一操作的重复请求合并为一个；过期请求丢弃</td></tr>
+</table>
+<p>论文 Table 12 进一步规定了中断时各组件能做什么：Planner 只能发送结构化指令；VLA 只能提出航点；环境执行运动、harness 更新路线记录；runtime 控制可见性和授权。<b>注意：开源的仿真实现是简化版</b>——一次只执行一个运动操作，实现了版本检查、自然完成优先、单个挂起审查和保留 VLA 历史的续行，但独立安全监控的抢占与物理时序只在 Go2 上测量。</p>
+
+<!-- ============================================================ -->
+<h2 id="s7">7. NavGPT VLA</h2>
+
+<h3 id="s7-1">7.1 模型结构与输出</h3>
+<table>
+  <tr><th>项</th><th>NavGPT3-4B</th><th>NavGPT3-8B</th></tr>
+  <tr><td>骨干</td><td>Qwen3-VL-4B-Instruct</td><td>Qwen3-VL-8B-Instruct</td></tr>
+  <tr><td>参数 / 精度</td><td>4.44B, BF16（9.7 GB）</td><td>8.77B, BF16（17.6 GB）</td></tr>
+  <tr><td>动作头</td><td colspan="2">两层 MLP（Linear-GELU-Linear），作用于<b>最后一个 prompt token</b> 的最终隐状态，输出 24 维 = 8 × (x, y, θ)</td></tr>
+  <tr><td>输入</td><td colspan="2">指令 + 最多 16 个历史步 × 4 视角（前/右/后/左），400×400，HFOV 120°；首帧与当前帧总是保留，中间随机采样</td></tr>
+  <tr><td>视觉 token 预算</td><td colspan="2">3,072，所有图像共享</td></tr>
+  <tr><td>坐标系</td><td colspan="2">当前机器人坐标系下的<b>累积</b>航点：x 向前、y 向左（米），θ 逆时针（弧度）；归一化尺度 (1.0, 0.433, 2.094)</td></tr>
+</table>
+<p>模型类 <code>NavGPT3ForConditionalGeneration</code> 继承 Transformers 的 Qwen3-VL，<b>必须使用 transformers==5.18.0</b>。视觉塔唯一改动是位置嵌入插值：权重在 Transformers 4.57 下训练，那时用 bfloat16 双线性权重逐个相加，5.x 改成 float32，会因舍入改变编码器输出，代码复原了 4.57 的算术。推理 prompt 模板：</p>
+<pre><code>Imagine you are a robot programmed for navigation tasks. You have been given a video of
+historical observations and an image of the current observation {Time step i Front View &lt;image&gt; ...}.
+Your assigned task is: '{instruction}'. Based on this sequence of images, predict your future trajectory.</code></pre>
+
+<h3 id="s7-2">7.2 Codec 视觉 token 分配</h3>
+<figure>
+  <img src="assets/codec_measured.png" alt="Codec allocation">
+  <figcaption>图 3（论文 Figure 3）：变化量 × 时近 × 视角共同决定每张图的分辨率。第一帧是 I 帧（完整参考），之后是 P 帧，按变化量分配 token；右下为 41,216 对回放样本中 codec 相对位置规则的 token 再分配。</figcaption>
+</figure>
+<p>思路借鉴视频编码：每个视角的第一张图是 I 帧，后续 P 帧按与上一帧的变化量分配 token。</p>
+<div class="eq">δ<sub>h,v</sub> = ‖thumb(I<sub>h,v</sub>) − thumb(I<sub>h−1,v</sub>)‖<sub>1</sub> / (255 · 3 · 64²)，&nbsp; s<sup>change</sup><sub>h,v</sub> = 1（I 帧）或 clip(5δ<sub>h,v</sub>, 0.05, 1)（P 帧）<span class="tag">(4)</span></div>
+<div class="eq">w<sup>codec</sup><sub>h,v</sub> = w<sup>pos</sup><sub>h,v</sub> · s<sup>change</sup><sub>h,v</sub>，&nbsp; w<sup>pos</sup> = exp(γ t/(T−1)) × camera_weight<sub>v</sub></div>
+<p>整数分配算法（附录 C，代码 <code>image_processing_navgpt3.allocate_vision_tokens</code>）：每张图先给 b<sub>min</sub>，剩余预算按权重比例分配并取整，超过 b<sub>max</sub> 的截断并把溢出重新分给未饱和的图，最后的余数按权重从高到低填满。评测配置：B<sub>vis</sub>=3072，γ=2，相机权重 (前 2, 右 1, 后 0.5, 左 1)，b<sub>min</sub>=4，b<sub>max</sub>=196。</p>
+<p>何时起作用由预算/容量比 ρ<sub>vis</sub> = B<sub>vis</sub> / (N<sub>hist</sub> · N<sub>view</sub> · b<sub>max</sub>) 决定：ρ ≥ 1 时所有图都能拿到 b<sub>max</sub>，与位置规则相同；ρ &lt; 1 时 token 向变化大的视角转移。四视角下 4 步以上历史就进入预算受限区间；<b>单视角下 3072/(16×196)=0.98，几乎饱和，codec 作用很小</b>——这对 G1-D 单相机部署意味着 codec 的增益基本消失。</p>
+
+<h3 id="s7-3">7.3 训练数据（论文 Table 1）</h3>
+<p>数据按“覆盖面”而非单一 benchmark 体量来组织，四个轴：能力（指令跟随→主动探索→动态交互→跨具身）、具身与观测接口、条件与边缘情况、视觉语言理解。所有导航来源都转成同一个 8 航点目标。</p>
+<table>
+  <tr><th>数据族</th><th class="num">来源数</th><th>采样</th><th class="num">规模 (M)</th></tr>
+  <tr><td colspan="4"><b>动作回归（65.6%）</b></td></tr>
+  <tr><td>VLN：四视角</td><td class="num">7</td><td>100%</td><td class="num">3.938</td></tr>
+  <tr><td>VLN：单视角</td><td class="num">5</td><td>100%</td><td class="num">2.113</td></tr>
+  <tr><td>VLN：SRDF（HM3D，重写指令 + DAgger 重标注）</td><td class="num">2</td><td>15%</td><td class="num">0.516</td></tr>
+  <tr><td>点目标导航（含低速 0.1 m/步、开阔空间）</td><td class="num">5</td><td>100%</td><td class="num">0.984</td></tr>
+  <tr><td>物体目标导航（随机相机高度与 FOV）</td><td class="num">1</td><td>100%</td><td class="num">2.000</td></tr>
+  <tr><td>目标跟踪</td><td class="num">6</td><td>100%</td><td class="num">1.486</td></tr>
+  <tr><td>户外驾驶（OpenScene、nuScenes）</td><td class="num">5</td><td>100%</td><td class="num">1.608</td></tr>
+  <tr><td colspan="4"><b>仅 next-token 预测（34.4%）</b></td></tr>
+  <tr><td>具身 QA 与对话</td><td class="num">12</td><td>10–100%</td><td class="num">1.532</td></tr>
+  <tr><td>通用视觉语言</td><td class="num">13</td><td>30–100%</td><td class="num">1.640</td></tr>
+  <tr><td>空间推理</td><td class="num">8</td><td>25–100%</td><td class="num">1.149</td></tr>
+  <tr><td>LocateAnything grounding（检测/指代/点/GUI/文字/版面）</td><td class="num">19</td><td>5–100%</td><td class="num">2.311</td></tr>
+  <tr class="hl"><td>合计</td><td class="num">83</td><td></td><td class="num">≈19.28</td></tr>
+</table>
+<p>对真机部署有价值的细节：R2R/RxR 每个训练 episode 既渲染成四视角也渲染成<b>前视单视角</b>（目标完全相同），所以模型确实学过单相机输入；部分观测用 Qwen-Image-Edit 处理得更像真实相机；物体导航数据随机化了相机高度和 FOV。</p>
+
+<h3 id="s7-4">7.4 训练配置与损失</h3>
+<table>
+  <tr><th>骨干</th><th class="num">GPU</th><th class="num">全局 BS</th><th class="num">步数</th><th class="num">长度</th><th>LR</th><th>动作头 LR</th></tr>
+  <tr><td>Qwen3-VL-4B</td><td class="num">32</td><td class="num">256</td><td class="num">~75.3k</td><td class="num">8,192</td><td>5×10⁻⁶</td><td>10⁻³</td></tr>
+  <tr><td>Qwen3-VL-8B</td><td class="num">32</td><td class="num">256</td><td class="num">~75.3k</td><td class="num">8,192</td><td>5×10⁻⁶</td><td>10⁻³</td></tr>
+</table>
+<div class="eq">ℒ<sub>nav</sub> = 1/(24|ℬ<sub>nav</sub>|) Σ<sub>i</sub> Σ<sub>r=1..8</sub> ‖â<sub>i,r</sub> − a<sub>i,r</sub>‖²，&nbsp; ℒ = ℒ<sub>nav</sub> + ℒ<sub>NTP</sub><span class="tag">(5)</span></div>
+<p>一个 epoch，两种损失权重都是 1；导航样本不参与 next-token 监督，QA/grounding 样本的空动作目标被屏蔽而不是学成零运动。训练时随机化 B<sub>vis</sub> ∈ [1024, 4096] 让 codec 进入有效区间。</p>
+
+<!-- ============================================================ -->
+<h2 id="s8">8. Harness 的递归自改进（RSI）</h2>
+<p>harness 的工具定义和视觉提示是用 KDLoop 式的树搜索自动迭代出来的：每个节点是一个可执行的 harness 版本（系统提示、可用工具、持久空间状态、观测与结果的呈现格式），边是候选修改。Think 提出修改 → Critic 对照接口约束和历史失败检查 → Experiment 实现并在 R2R-CE <b>训练集</b>的固定 100 个 episode 上用 Claude Opus 5 打分 → Distill 记录确认的发现、失败的修改和未决假设；停滞时 Reflect 回顾整类修改。搜索只在开发期进行，评测时接口固定。</p>
+<p>演进轨迹：前视观测 + 原子步进 66% → VLA 委托（4B）72% / （8B）76% → VLA + 空间工具 81%（开发集最好）。早期的“地点图”接口只有 54%。一次审查发现任务提示描述了局部移动但其实没有移动工具，之后补上了该工具，并把拼接全景换成四张独立的 512 像素视图。</p>
+
+<!-- ============================================================ -->
+<h2 id="s9">9. 实验结果</h2>
+
+<h3 id="s9-1">9.1 主结果：R2R-CE / RxR-CE Val-Unseen 全集（论文 Table 6）</h3>
+<table>
+  <tr><th>方法</th><th>规模</th><th class="num">R2R NE↓</th><th class="num">OSR↑</th><th class="num">SR↑</th><th class="num">SPL↑</th><th class="num">RxR NE↓</th><th class="num">nDTW↑</th><th class="num">SR↑</th><th class="num">SPL↑</th></tr>
+  <tr><td>人类（英文 RxR，离散）</td><td>–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">1.32</td><td class="num">77.7</td><td class="num">90.4</td><td class="num">–</td></tr>
+  <tr><td>NavFoM</td><td>7B</td><td class="num">4.61</td><td class="num">72.1</td><td class="num">61.7</td><td class="num">55.3</td><td class="num">4.74</td><td class="num">65.8</td><td class="num">64.4</td><td class="num">56.2</td></tr>
+  <tr><td>ABot-N0</td><td>4B</td><td class="num">3.78</td><td class="num">70.8</td><td class="num">66.4</td><td class="num">63.9</td><td class="num">3.83</td><td class="num">–</td><td class="num">69.3</td><td class="num">60.0</td></tr>
+  <tr><td>AstraNav-World</td><td>3B+5B</td><td class="num">3.86</td><td class="num">73.9</td><td class="num">67.9</td><td class="num">65.4</td><td class="num">3.82</td><td class="num">–</td><td class="num">72.9</td><td class="num">61.5</td></tr>
+  <tr><td>OmniNav</td><td>3B</td><td class="num">3.74</td><td class="num">74.6</td><td class="num">69.5</td><td class="num">66.1</td><td class="num">3.77</td><td class="num">–</td><td class="num">73.6</td><td class="num">62.0</td></tr>
+  <tr><td>Qwen-RobotNav</td><td>8B</td><td class="num">3.53</td><td class="num">78.5</td><td class="num">72.1</td><td class="num">66.6</td><td class="num">3.58</td><td class="num">72.5</td><td class="num">76.5</td><td class="num">65.7</td></tr>
+  <tr><td>Robostral Navigate</td><td>8B</td><td class="num">3.20</td><td class="num">81.3</td><td class="num">77.4</td><td class="num">74.2</td><td class="num">3.47</td><td class="num">–</td><td class="num">75.1</td><td class="num">68.7</td></tr>
+  <tr><td>NavGPT VLA</td><td>4B</td><td class="num">3.32</td><td class="num">81.67</td><td class="num">74.33</td><td class="num">68.13</td><td class="num">2.87</td><td class="num">75.79</td><td class="num">81.41</td><td class="num">69.86</td></tr>
+  <tr><td>NavGPT VLA</td><td>8B</td><td class="num">2.97</td><td class="num">82.49</td><td class="num">76.94</td><td class="num">70.61</td><td class="num">2.65</td><td class="num">76.74</td><td class="num">82.39</td><td class="num">70.56</td></tr>
+  <tr><td>NavGPT-3（Claude Opus 5）</td><td>+8B</td><td class="num">2.77</td><td class="num">84.07</td><td class="num">79.01</td><td class="num">70.16</td><td class="num">2.27</td><td class="num">75.09</td><td class="num">84.80</td><td class="num">69.85</td></tr>
+  <tr class="hl"><td>NavGPT-3（GPT-6 Astra）</td><td>+8B</td><td class="num">2.18</td><td class="num">86.99</td><td class="num">81.51</td><td class="num">70.42</td><td class="num">1.56</td><td class="num">78.47</td><td class="num">90.43</td><td class="num">74.31</td></tr>
+</table>
+<p>RxR 指令更长、路线描述更细，返回的路线证据、回到记录点、局部修正都有更多可用信息，所以 harness 在 RxR 上增益更大（+8.04 SR）。平均每个 episode 1 分 22 秒，人类约 3 分钟。注意：该 harness 使用 NavGPT 全景航点，传感器与运动和官方 RxR-Habitat 挑战赛不同，结果是本地验证数字而非排行榜提交。</p>
+
+<h3 id="s9-2">9.2 工具与 VLA 消融（R2R-CE 100 集子集，论文 Table 3）</h3>
+<table>
+  <tr><th>Planner</th><th>VLA</th><th>Map</th><th>Back</th><th class="num">SR</th><th class="num">SPL</th><th class="num">Tokens(k)</th><th class="num">Turns</th><th class="num">$/ep</th><th class="num">反应(s)</th></tr>
+  <tr><td>仅 VLA</td><td>✓</td><td>–</td><td>–</td><td class="num">71</td><td class="num">66.14</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">0.78</td></tr>
+  <tr><td>GPT-6 Astra</td><td>–</td><td>–</td><td>–</td><td class="num">72</td><td class="num">62.26</td><td class="num">325.0</td><td class="num">32.14</td><td class="num">0.593</td><td class="num">3.3</td></tr>
+  <tr class="hl"><td>GPT-6 Astra</td><td>–</td><td>✓</td><td>✓</td><td class="num">83</td><td class="num">69.04</td><td class="num">190.8</td><td class="num">10.71</td><td class="num">0.469</td><td class="num">6.2</td></tr>
+  <tr><td>GPT-6 Astra</td><td>✓</td><td>–</td><td>–</td><td class="num">75</td><td class="num">67.83</td><td class="num">227.9</td><td class="num">3.37</td><td class="num">0.469</td><td class="num">0.78</td></tr>
+  <tr><td>GPT-6 Astra</td><td>✓</td><td>✓</td><td>✓</td><td class="num">82</td><td class="num">69.12</td><td class="num">155.0</td><td class="num">3.88</td><td class="num">0.391</td><td class="num">0.78</td></tr>
+  <tr><td>Opus 5</td><td>–</td><td>–</td><td>–</td><td class="num">66</td><td class="num">55.24</td><td class="num">721.0</td><td class="num">47.93</td><td class="num">0.69</td><td class="num">8.9</td></tr>
+  <tr><td>Opus 5</td><td>–</td><td>✓</td><td>✓</td><td class="num">73</td><td class="num">44.82</td><td class="num">483.4</td><td class="num">16.75</td><td class="num">0.990</td><td class="num">19.3</td></tr>
+  <tr><td>Opus 5</td><td>✓</td><td>✓</td><td>–</td><td class="num">81</td><td class="num">69.29</td><td class="num">211.8</td><td class="num">8.96</td><td class="num">0.393</td><td class="num">0.78</td></tr>
+  <tr><td>Opus 5</td><td>✓</td><td>✓</td><td>✓</td><td class="num">79</td><td class="num">66.70</td><td class="num">185.6</td><td class="num">8.50</td><td class="num">0.397</td><td class="num">0.78</td></tr>
+</table>
+<p>三条结论：<b>(1) harness 决定语言模型能导航多好</b>——加地图和回退后两种 Planner 成功率都大涨、token 降 33–41%；<b>(2) VLA 是否提升成功率取决于语言模型</b>——Opus 受益明显，Astra 反而把省下的 token 花在监督纠正 VLA 上；<b>(3) VLA 决定最小反应时间</b>——没有 VLA 时系统每 3–19 s 才动一次，有 VLA 时 8B 平均 0.78 s/步，为真机提供实时响应的基本保证。</p>
+
+<h3 id="s9-3">9.3 检查频率与视觉提示</h3>
+<table>
+  <tr><th>Planner 检查 VLA 的频率</th><th class="num">NE</th><th class="num">SR</th><th class="num">SPL</th><th class="num">Tokens(k)</th></tr>
+  <tr><td>不检查（只在 VLA 停下时，中位 51 步）</td><td class="num">3.82</td><td class="num">77</td><td class="num">67.51</td><td class="num">179.2</td></tr>
+  <tr><td>每 32 步</td><td class="num">3.56</td><td class="num">78</td><td class="num">68.88</td><td class="num">1,529.9</td></tr>
+  <tr><td>每 16 步</td><td class="num">2.01</td><td class="num">83</td><td class="num">77.36</td><td class="num">2,319.5</td></tr>
+</table>
+<p>更频繁的检查能提升路线质量，但 token 增长远快于精度（每次检查都重读累计的路线上下文），所以论文建议真机采用<b>事件触发</b>的审查。视觉提示组织（标签画在图上/文字说明/小字体/朝向向上地图/绝对方位）对成功率影响很小（Astra 76–78%，Opus 73–77%），但影响推理开销，且“人好读”不等于“模型好读”：最难读的绝对方位版本 token 最少。</p>
+
+<h3 id="s9-4">9.4 跨任务、Codec 与扩展</h3>
+<ul>
+  <li><b>ObjectNav</b>（500 集子集，Opus 5 + 8B VLA）：MP3D SR 59.2 / SPL 25.2（同集上 Qwen-RobotNav 8B 为 47.8 / 17.5）；HM3D v2 SR 75.3 / SPL 40.8（对方 72.4 / 33.1）。</li>
+  <li><b>EQA</b>：HM-EQA 77.38、MT-HM3D 55.27、EXPRESS 80.43，与最强的 NavMCP 持平略好。</li>
+  <li><b>Codec</b>：8B 在所有训练范围都受益（R2R SR +1.7/+5.7/+2.1）；4B 在 R2R 上要等加入跨具身数据才受益。原因：预算受限时才起作用；训练数据视觉多样性越大，变化感知规则越有价值；模型需要学会读变分辨率图像。</li>
+  <li><b>扩展</b>：数据从 1.70M VLN 扩到 19.28M，8B 的 R2R SR 65.3→76.94；数据效应大于参数翻倍；最后一步加 grounding 仍涨 5 个点，曲线未饱和。</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s10">10. 论文中的真机部署（Unitree Go2）</h2>
+<table>
+  <tr><th>项</th><th>论文做法</th></tr>
+  <tr><td>平台</td><td>Unitree Go2 四足</td></tr>
+  <tr><td>VLA 输入</td><td>仅前视 RGB 流，单视角历史（与仿真四视角不同）</td></tr>
+  <tr><td>推理位置</td><td>远程：机器人压缩上传观测+指令到服务器，服务器返回航点；板载：<b>4B VLA 在 Jetson Thor 上 FP8 + TensorRT</b>（参照 Qwen-RobotNav）</td></tr>
+  <tr><td>安全</td><td>机载 LiDAR 提供几何危险检测给 runtime 监控线程（不作为 VLA 输入）；每条运动命令经过最终命令过滤器，只有持有授权的操作才能下发；独立的操作员急停始终有效</td></tr>
+</table>
+<p>三个场景：A 路线修正、B LiDAR 保护、C 优先级与恢复；每条件 30 次试验（5 条路线 × 3 种事件时机 × 2 次重复）。</p>
+<table>
+  <tr><th>条件</th><th class="num">A: SR</th><th class="num">修复(s)</th><th class="num">B: 漏停/N</th><th class="num">急停 p95 (ms)</th><th class="num">C: 过期命令/N</th><th class="num">恢复 SR</th></tr>
+  <tr><td>仅 VLA</td><td class="num">60.0</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+  <tr><td>Planner + 工具</td><td class="num">70.0</td><td class="num">14.2</td><td class="num">9/30</td><td class="num">2150</td><td class="num">11/30</td><td class="num">53.3</td></tr>
+  <tr><td>顺序 + 排队</td><td class="num">73.3</td><td class="num">12.8</td><td class="num">7/30</td><td class="num">1840</td><td class="num">8/30</td><td class="num">60.0</td></tr>
+  <tr><td>顺序 + 优先级</td><td class="num">76.7</td><td class="num">11.5</td><td class="num">2/30</td><td class="num">420</td><td class="num">3/30</td><td class="num">70.0</td></tr>
+  <tr><td>重叠 + 排队</td><td class="num">76.7</td><td class="num">9.6</td><td class="num">5/30</td><td class="num">1310</td><td class="num">6/30</td><td class="num">66.7</td></tr>
+  <tr class="hl"><td>重叠 + 优先级</td><td class="num">83.3</td><td class="num">7.9</td><td class="num">0/30</td><td class="num">180</td><td class="num">1/30</td><td class="num">80.0</td></tr>
+</table>
+<p>结论：<b>重叠</b>（Planner 审查时 VLA 继续执行）缩短修复时间；<b>优先级</b>（检测到危险立刻在命令过滤器撤销授权）大幅降低漏停和急停延迟。两者叠加效果最好。这正是 G1-D 部署时 runtime 要复现的核心机制。</p>
+
+<!-- ============================================================ -->
+<h2 id="s11">11. 代码解读</h2>
+
+<h3 id="s11-1">11.1 仓库结构（<code>code/NavGPT-3</code>）</h3>
+<div class="tree">navgpt/
+├── cli.py              navgpt launch | run | preflight | merge | view | check-data | check-checkpoint
+├── launch.py           多 GPU：每卡起 Environment+VLA 服务，各跑一个分片，最后合并
+├── settings.py         实验配置加载与校验（未知键直接报错）
+├── planner/            NavGPT Planner（Python 3.11）
+│   ├── runner.py       episode 循环、重试、计分
+│   ├── prompts.py      任务简报（briefing）
+│   ├── runtimes/       claude.py（Claude Agent SDK）· codex.py（Codex SDK）
+│   ├── tools/
+│   │   ├── mcp_tools.py   8 个工具的 MCP 服务器实现（1713 行，harness 核心）
+│   │   ├── vla_client.py  VLA HTTP 客户端，含线协议陷阱说明与到达判定
+│   │   └── ablation.py    受控实验的审查调度器
+│   └── viewer.py / flowview.py   结果浏览器
+├── environment/        NavGPT Environment（Python 3.8 + habitat-sim 0.1.7，无 Habitat-Lab）
+│   ├── api.py          stdlib HTTP 服务，/call/r2rce__&lt;verb&gt;
+│   └── r2r.py          R2R/RxR 加载、渲染、动作、地图、地点图、指标（2567 行）
+└── vla/                NavGPT VLA（Python 3.11 + PyTorch 2.6 + transformers 5.18）
+    ├── api.py          Flask 服务 /info /reset /act /observe /state（固定 4 视角）
+    ├── agent.py        NavGPTVLA：多视角历史、采样、token 分配、帧缓存、反归一化
+    ├── navigation.py   航点 → Habitat TELEPORT 位姿
+    └── runtime/
+        ├── inference.py     严格加载、prompt 格式
+        ├── embodiments.py   ROBOT_SCALE_CONFIGS（目前只有 habitat_nav）
+        └── models/          configuration / modeling / image_processing / processing_navgpt3.py
+configs/experiments/    vln/ · tools/ · representation/ · review/（每个 yaml 自包含一次实验）
+docs/                   USAGE.md · DATASETS.md · HUGGING_FACE.md</div>
+<p>三个组件各用独立 Python 环境，通过 HTTP 解耦（Habitat 0.1.7 只支持 Python 3.8，VLA 需要新版 PyTorch，合在一起依赖无法维护）。</p>
+
+<h3 id="s11-2">11.2 VLA 推理链路（<code>navgpt/vla/agent.py</code>）</h3>
+<ol>
+  <li><code>observe_history(images)</code>：每个相机一条帧列表；<code>frame_cache=precompute</code> 时，对每帧预先按所有可能被分到的 token 上限做 patchify，推理时直接查表；</li>
+  <li><code>predict_inference(text)</code>：<code>sample_indices</code> 保留首帧和末帧、中间随机采样到 16 步 → 拼 prompt（每步每视角一个 <code>&lt;image&gt;</code>）→ codec 计算变化分数 → <code>allocate_vision_tokens</code> → 组装 patches；</li>
+  <li><code>model.predict_actions</code>：Qwen3-VL 前向，取最后一个 token 的隐状态过 MLP → 24 维；</li>
+  <li><code>recover_absolute_waypoints</code>：乘 <code>habitat_nav</code> 尺度 (x 1.0, y 0.433, θ 2π/3) 得到米和弧度。</li>
+</ol>
+<div class="callout warn"><b>vla_client.py 里记录的线协议陷阱（部署时同样适用）</b>
+• <code>/act</code> 的 9 个键全部必填；<code>global_compass</code> 输入是 WXYZ，返回的 rotation 是 XYZW；<br>
+• 线上视角顺序是<b>前、右、后、左</b>，不是传感器索引的前左后右；相机权重不同（前最重、后最轻），左右装反不会报错，只会悄悄降低效果；<br>
+• 航点是<b>相对当前位姿的累积量</b>，第 k 个是相对“你刚发送的位姿”的位移，不是相对第 k−1 个；<br>
+• 服务端永远不发 STOP，停不停完全由调用方决定；<br>
+• 服务是有状态的，不 <code>/reset</code> 上一集的帧会泄漏到下一集；也不是并发安全的，调用必须串行。</div>
+<p>另一个细节：论文正文说“执行只提交第一个航点”，而开源代码（继承 NaVid/VLNCE-EVAL）实际执行的是 <code>navigation[1]</code>（第 2 个航点）。G1-D 部署工程不再逐点执行，而是把 8 个航点作为连续参考路径来跟踪（见 13.8 节）。</p>
+
+<h3 id="s11-3">11.3 服务接口</h3>
+<table>
+  <tr><th>服务</th><th>端点</th><th>用途</th></tr>
+  <tr><td rowspan="4">Environment :9200</td><td><code>GET /health</code></td><td>数据集、split、episode 数、GT 覆盖、指纹、可用 verbs</td></tr>
+  <tr><td><code>POST /call/r2rce__&lt;verb&gt;</code></td><td>工具侧：<code>reset · observe_egocentric · step_discrete · observe_pano · agent_state · step_hightolow · teleport · observed_map · places · retrace_to · retrace_path</code>；仅 Planner 侧：<code>evaluate · trajectory</code>（含真值，绝不暴露给工具）</td></tr>
+  <tr><td><code>POST /env-panel/field/&lt;name&gt;</code></td><td>设置 split / episode_index</td></tr>
+  <tr><td><code>POST /env-panel/action/&lt;name&gt;</code></td><td>play / reset</td></tr>
+  <tr><td rowspan="5">VLA :8000</td><td><code>GET /info</code></td><td>模型标识与状态</td></tr>
+  <tr><td><code>POST /reset</code></td><td>清空时序状态（可带 seed）</td></tr>
+  <tr><td><code>POST /act</code></td><td>一次多视角推理，返回 <code>[TELEPORT action, 8 个航点]</code></td></tr>
+  <tr><td><code>POST /observe</code></td><td>只追加视觉历史不预测（Planner 自己修复路线时经过的帧）</td></tr>
+  <tr><td><code>GET /state</code></td><td>历史/缓存/RNG 指纹，用于可复现的消融</td></tr>
+</table>
+<p><b>对真机部署的启示</b>：工具服务器只通过上面这些 verbs 与环境交互，而且注释明确说工具侧 verbs “只暴露一个带深度相机和里程计的机器人本来就知道的信息”。因此只要写一个说同样协议的“机器人 Environment 服务”，harness 和 Planner 基本可以原样复用。</p>
+
+<h3 id="s11-4">11.4 配置与命令</h3>
+<pre><code># configs/experiments/tools/astra/vla.yaml（节选）
+gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+environment: {url: http://127.0.0.1:9200, max_steps: 500, forward_view_px: 512,
+              panorama_view_px: 512, turn_angle_deg: 15, step_size_m: 0.25, allow_sliding: true}
+vla:         {url: http://127.0.0.1:8000, checkpoint: navgpt3-8b, visual_token_budget: 3072,
+              frame_cache: precompute, seed: 20260910}
+planner:     {runtime: codex, model: gpt-6-astra, effort: high, max_turns: 200,
+              episode_timeout_s: 2400, max_budget_usd: null,
+              tools: [navigate_by_instruction, observe_forward, observe_panorama, terminate_episode]}
+harness:     {interface: reference, review_every: 0, route_finding: true, vla_steps_per_call: 200}</code></pre>
+<table>
+  <tr><th>命令</th><th>环境</th><th>用途</th></tr>
+  <tr><td><code>navgpt launch --config CFG [--gpus 0-3] [--episodes 0-9]</code></td><td>planner</td><td>每卡起服务、分片运行、合并</td></tr>
+  <tr><td><code>python -m navgpt.environment --config CFG --gpu 0 [--blind]</code></td><td>habitat</td><td>启动环境服务；<code>--blind</code> 用合成像素做管线测试</td></tr>
+  <tr><td><code>python -m navgpt.vla --config CFG --gpu 0</code></td><td>vla</td><td>启动 VLA 服务</td></tr>
+  <tr><td><code>navgpt run / preflight / merge / view</code></td><td>planner</td><td>运行、预检、合并分片、结果浏览（:8080）</td></tr>
+  <tr><td><code>navgpt check-data / check-checkpoint</code></td><td>planner</td><td>不启动仿真器检查数据、不加载权重检查 checkpoint</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s12">12. 仿真复现指南</h2>
+<ol>
+  <li><b>硬件</b>：Linux + NVIDIA GPU（需要 EGL/OpenGL 渲染）；每个 VLA 服务在单卡上加载完整模型，8B 建议 ≥ 24 GB 显存（权重 17.6 GB + 激活），4B ≥ 16 GB；Planner 本身不需要 GPU。</li>
+  <li><b>环境</b>：在仓库根运行 <code>scripts/setup_gpu_server.sh</code>（封装官方 uv 流程；需要 Habitat 时 <code>WITH_HABITAT=1</code>）。务必保持 <code>transformers==5.18.0</code>。</li>
+  <li><b>RTX 5090 / Ubuntu 24.04</b>：5090 是 Blackwell（sm_120），需要 NVIDIA 驱动 ≥ 570、CUDA 12.8 版 PyTorch（2.7 起）；官方锁定的 torch 2.6 + cu124 不含 sm_120 内核。脚本会按 <code>nvidia-smi</code> 的 compute capability 自动改装 torch 2.7.1 + cu128，并做一次 bf16 矩阵乘自检。这偏离了官方测试版本，需用固定输入核对推理结果。FlashAttention-2 的预编译包未必支持 sm_120，装不上时代码会自动退回 SDPA。Ubuntu 24.04 自带 Python 3.12，uv 会另装 3.11，不影响系统。</li>
+  <li><b>数据</b>：Matterport3D Habitat 场景（需申请）、<code>R2R_VLNCE_v1-3_preprocessed.zip</code>（val_unseen 1,839 集）、<code>RxR_VLNCE_v0.zip</code>、消融用 OpenNav R2R-CE 100 集子集；写入 <code>configs/paths.yaml</code> 后执行 <code>navgpt check-data</code>。</li>
+  <li><b>权重</b>：<code>scripts/download_weights.sh 8B 4B</code> → <code>models/</code>；在 <code>paths.yaml</code> 的 <code>checkpoints</code> 中指向它们，执行 <code>navgpt check-checkpoint</code>。</li>
+  <li><b>先跑 VLA-only</b>（不需要 Planner 账号）：<code>navgpt launch --config configs/experiments/vln/vla_8b_r2r.yaml --gpus 0 --episodes 0-9</code>。</li>
+  <li><b>完整系统</b>：<code>codex login</code> 或 Claude 登录 / <code>ANTHROPIC_API_KEY</code>，再跑 <code>vln/navgpt3_astra_r2r.yaml</code>。成本参考 Table 3：约 $0.4/episode。</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="s13">13. 宇树 G1-D 部署方案</h2>
+
+<h3 id="s13-1">13.1 G1-D 硬件要点</h3>
+<table>
+  <tr><th>项</th><th>G1-D 旗舰版</th><th>对部署的意义</th></tr>
+  <tr><td>底盘</td><td>双轮差速，最大 1.5 m/s，可原地旋转；SDK 限制 vx ∈ [−1.5, 1.5]，vyaw ∈ [−0.6, 0.6]，<b>不支持横移</b></td><td>需要把航点 (x, y, θ) 转成弧线运动；转向较慢（0.6 rad/s），大角度航点要先原地转</td></tr>
+  <tr><td>控制接口</td><td><code>unitree_sdk2</code> 的 <code>g1::AgvClient::Move(vx, vy, vyaw)</code>，服务名 <code>agv</code>，API 1001；Python SDK 无此客户端</td><td>工程改用 DDS 话题 <code>rt/cmd_vel_no_limit</code>（<code>Twist_</code>）控制，与现有部署一致</td></tr>
+  <tr><td>相机</td><td>头部高清双目相机 ×1、腕部相机 ×2；底盘深度相机 ×2（H75°/V51°，0.3–3.5 m）</td><td>VLA 用头部单目；FOV 未公布，需实测（训练为 120°）</td></tr>
+  <tr><td>相机高度</td><td>整机高度 1.26–1.68 m（立柱可调）</td><td>仿真相机高度 1.25 m；立柱放低时头部相机可能接近该高度，是 G1-D 相对 Go2 的优势（需实测）</td></tr>
+  <tr><td>雷达与安全传感器</td><td>头部 Livox MID-360、底盘激光雷达、碰撞传感器 ×2、低矮障碍物传感器 ×2、超声波 ×2</td><td>比 Go2 更丰富，适合做 runtime 的优先级保护监控</td></tr>
+  <tr><td>算力</td><td>PC2：Jetson Orin NX 16GB（100 TOPS，GPU 918 MHz），IP 192.168.123.164</td><td><b>无法运行 8B</b>；4B BF16 理论上能塞进 16 GB 统一内存但余量极小、速度慢。建议 VLA 放远程 GPU 服务器</td></tr>
+  <tr><td>网络</td><td>WiFi6、千兆网口</td><td>400×400 JPEG 约几十 KB/帧，1–2 Hz 带宽无压力；延迟需实测</td></tr>
+</table>
+<div class="callout bad"><b>型号确认</b>G1-D <b>通用版</b>是推拉式底盘、无电驱，不能做自主导航；本方案仅适用于<b>旗舰版</b>（电动差速底盘）。</div>
+
+<h3 id="s13-2">13.2 差距分析：论文 Go2 方案 vs G1-D</h3>
+<table>
+  <tr><th>维度</th><th>论文（Go2）</th><th>G1-D</th><th>处理方式</th></tr>
+  <tr><td>运动学</td><td>四足，全向</td><td>差速，无横移</td><td>弧线跟踪器（已实现）</td></tr>
+  <tr><td>VLA 输入</td><td>前视单目</td><td>头部双目取单眼</td><td>单视角 VLA 服务（已实现）；后续可加 3 个 USB 相机凑四视角，或用腰部旋转（Z ±155°）扫全景供 Planner 使用</td></tr>
+  <tr><td>VLA 推理</td><td>远程服务器 / Jetson Thor FP8</td><td>Orin NX 16GB</td><td>远程 GPU 服务器（已实现服务端）；板载需自行做 FP8/INT4 量化 + TensorRT，属后期优化</td></tr>
+  <tr><td>Runtime</td><td>ZEOS（未开源）</td><td>无</td><td>按附录 B 自行实现最小 runtime；授权版本+命令过滤已实现，线程调度待做；或等待官方发布</td></tr>
+  <tr><td>环境接口</td><td>（未公开）</td><td>无</td><td>写一个兼容 <code>/call/r2rce__*</code> 的机器人 Environment 服务，复用 harness</td></tr>
+  <tr><td>里程计</td><td>Go2 自带</td><td>话题待确认</td><td>真机 DDS 发现；备选：MID-360 + FAST-LIO 等激光里程计</td></tr>
+</table>
+
+<h3 id="s13-3">13.3 部署架构</h3>
+<figure>
+<svg viewBox="0 0 1060 470" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#475569"/></marker></defs>
+  <rect x="10" y="10" width="420" height="450" rx="14" fill="#f0fdfa" stroke="#0f766e"/>
+  <text x="24" y="38" font-size="16" font-weight="700" fill="#0f766e">G1-D 旗舰版 · PC2 Orin NX（192.168.123.164）</text>
+  <rect x="30" y="60" width="180" height="58" rx="8" fill="#fff" stroke="#94a3b8"/><text x="42" y="84" font-size="13" font-weight="600">teleimager image_server</text><text x="42" y="104" font-size="12" fill="#475569">头部双目 → ZMQ :55555</text>
+  <rect x="230" y="60" width="180" height="58" rx="8" fill="#fff" stroke="#94a3b8"/><text x="242" y="84" font-size="13" font-weight="600">安全传感器</text><text x="242" y="104" font-size="12" fill="#475569">MID-360 / 深度 / 碰撞</text>
+  <rect x="30" y="150" width="380" height="170" rx="10" fill="#fff" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="42" y="174" font-size="14" font-weight="700">navgpt_g1d（本项目 deploy/g1d）</text>
+  <text x="42" y="198" font-size="12.5">推理线程：最新帧 + 拍照时刻位姿 → /act</text>
+  <text x="42" y="220" font-size="12.5">navigator / path：锚定 → 裁剪 → 航向过渡拼接</text>
+  <text x="42" y="242" font-size="12.5">控制线程 20 Hz：tracker 纯追踪 + 限速限幅</text>
+  <text x="42" y="264" font-size="12.5">safety：激光减速区 / 停止区 → 保护停止与恢复</text>
+  <text x="42" y="286" font-size="12.5">authority：授权版本 → 最终命令过滤</text>
+  <text x="42" y="308" font-size="12.5">api :8124 · 事件日志 · report</text>
+  <rect x="30" y="350" width="380" height="58" rx="8" fill="#fff" stroke="#94a3b8"/><text x="42" y="374" font-size="13" font-weight="600">CmdVelStreamer 30 Hz → rt/cmd_vel_no_limit</text><text x="42" y="394" font-size="12" fill="#475569">Twist_ · 死人开关 0.3 s · 结束零速保持后释放</text>
+  <line x1="120" y1="118" x2="120" y2="150" stroke="#475569" marker-end="url(#ar)"/>
+  <line x1="320" y1="118" x2="320" y2="150" stroke="#475569" marker-end="url(#ar)"/>
+  <line x1="220" y1="320" x2="220" y2="350" stroke="#475569" marker-end="url(#ar)"/>
+  <rect x="560" y="10" width="490" height="250" rx="14" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="574" y="38" font-size="16" font-weight="700" fill="#4338ca">GPU 推理服务器（Linux，≥24 GB 显存）</text>
+  <rect x="580" y="56" width="450" height="80" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="592" y="80" font-size="13" font-weight="600">serve_vla.py :8100（RTX 5090）</text>
+  <text x="592" y="100" font-size="12" fill="#475569">NavGPTVLA(view_num=1) · NavGPT3-8B BF16</text>
+  <text x="592" y="120" font-size="12" fill="#475569">/reset /act /observe /info</text>
+  <rect x="580" y="150" width="450" height="90" rx="8" fill="#fff" stroke="#94a3b8" stroke-dasharray="5,4"/>
+  <text x="592" y="174" font-size="13" font-weight="600">（阶段 4）NavGPT Planner + MCP 工具服务器</text>
+  <text x="592" y="194" font-size="12" fill="#475569">code/NavGPT-3/navgpt/planner，原样复用</text>
+  <text x="592" y="214" font-size="12" fill="#475569">+ 机器人 Environment 服务（兼容 /call/r2rce__*）</text>
+  <rect x="560" y="300" width="490" height="90" rx="14" fill="#fff7ed" stroke="#c2410c"/>
+  <text x="574" y="328" font-size="16" font-weight="700" fill="#c2410c">云端大模型（阶段 4）</text>
+  <text x="574" y="352" font-size="12.5" fill="#475569">Codex（GPT 系列）或 Claude Agent SDK（Claude 系列）</text>
+  <text x="574" y="372" font-size="12.5" fill="#475569">也支持 Bedrock / Vertex / 兼容网关 ANTHROPIC_BASE_URL</text>
+  <line x1="410" y1="220" x2="580" y2="96" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="440" y="140" font-size="12" fill="#4338ca">WiFi6 / 有线</text>
+  <text x="440" y="156" font-size="12" fill="#4338ca">JPEG + 指令 → 航点</text>
+  <line x1="805" y1="240" x2="805" y2="300" stroke="#c2410c" stroke-dasharray="5,4" marker-end="url(#ar)"/>
+</svg>
+<figcaption>图 4：G1-D 部署拓扑。实线为 VLA 直驱的并行推理闭环（已实现，<code>deploy/g1d</code>），虚线为阶段 4 的完整 NavGPT-3 harness。</figcaption>
+</figure>
+
+<h3 id="s13-4">13.4 关键适配点</h3>
+<h4>(1) 航点 → 差速底盘速度</h4>
+<p>VLA 输出 8 个累积航点，仿真里直接瞬移到 <code>navigation[1]</code>。G1-D 不能横移，而且逐点“开到→停→再推理”会一卡一卡，所以工程把全部 8 个航点锚定到里程计坐标，作为一条连续的参考路径，由 20 Hz 纯追踪控制器跟踪，输出 <code>(vx, vyaw)</code> 到 <code>rt/cmd_vel_no_limit</code>。方位角过大时原地转向（带滞回），其余情况边走边转；中间航点不停车、不对齐朝向。完整设计见 <a href="#s13-8">13.8 节</a>。</p>
+
+<h4>(2) 相机对齐（sim-to-real 最大风险之一）</h4>
+<ul>
+  <li><b>分辨率</b>：训练为 400×400 方图，已在 <code>camera.py</code> 中做单眼 → 中心裁方 → 缩放；</li>
+  <li><b>视场角</b>：训练为 HFOV 120°。若头部相机 FOV 明显更窄，同样的景物显得更大更近，航点尺度可能偏差。实测后若差距大，建议加装 120° 广角 USB 相机（可同时装成前/右/后/左四目，完全对齐四视角训练分布）；</li>
+  <li><b>高度</b>：仿真 1.25 m；调节立柱使头部相机尽量接近；</li>
+  <li><b>视角顺序</b>：若做四目，线上顺序必须是前、右、后、左。</li>
+</ul>
+
+<h4>(3) 算力与推理位置</h4>
+<table>
+  <tr><th>方案</th><th>可行性</th><th>建议</th></tr>
+  <tr><td>远程 GPU 跑 8B BF16</td><td>可行，论文 8B 平均 0.78 s/步（不含通信）</td><td><b>首选</b>，RTX 4090/5090、L40S、A6000 等</td></tr>
+  <tr><td>远程 GPU 跑 4B</td><td>可行，更快，SR 低约 2.6 点</td><td>网络/显存受限时的备选</td></tr>
+  <tr><td>Orin NX 板载 4B</td><td>BF16 权重 9.7 GB，16 GB 统一内存还要放系统和其他进程；无 FP8；flash-attn 支持存疑</td><td>不建议；如必须板载，需 INT4/INT8 量化 + TensorRT-LLM 并接受精度损失</td></tr>
+  <tr><td>升级到 Jetson Thor</td><td>论文已验证 4B FP8 + TensorRT</td><td>长期方案</td></tr>
+</table>
+
+<h4>(4) 安全与运动授权</h4>
+<p><code>authority.py</code> 实现了论文 Eq. 9/10 的最小版本：同一时刻最多一个操作持有授权；每次授予/撤销都递增版本；命令必须带当前版本才会下发；保护性停止会锁存，清除后旧授权依然无效，必须重新授予；看门狗检测持有者长时间没有发命令。任何监控线程只需调用 <code>authority.protective_stop("原因")</code> 即可在下一个 50 ms 控制周期内把底盘置零，不需要等 VLA 或 Planner。<b>遥控器急停与底盘自带的碰撞/低矮障碍物传感器必须始终保持有效</b>，软件保护只是附加层。</p>
+
+<h4>(5) 接入完整 harness（阶段 4）</h4>
+<p>写一个“机器人 Environment 服务”，实现工具侧 verbs：</p>
+<table>
+  <tr><th>verb</th><th>真机实现思路</th></tr>
+  <tr><td><code>observe_egocentric</code></td><td>头部相机当前帧</td></tr>
+  <tr><td><code>observe_pano</code></td><td>四目相机；或腰部 Z 轴转到 0/±90°/±155° 拍照（后视只能到 155°，或原地转底盘）；距离扫描来自 MID-360</td></tr>
+  <tr><td><code>agent_state</code></td><td>里程计位姿（WXYZ 四元数）</td></tr>
+  <tr><td><code>teleport</code></td><td>语义改为“开到该相对位姿”，内部生成参考路径交给 tracker 跟踪；返回 <code>navigable</code> 表示是否被挡</td></tr>
+  <tr><td><code>step_hightolow</code></td><td>先转后走，基于里程计闭环</td></tr>
+  <tr><td><code>observed_map</code></td><td>深度/激光栅格地图，只画真正观测到的格子</td></tr>
+  <tr><td><code>places / retrace_to / retrace_path</code></td><td>由里程计路径构建地点图；回退沿已走路径</td></tr>
+</table>
+<p>同时需要把 <code>mcp_tools.vla_navigate</code> 里对 VLA 的调用改成单视角（或用四目），并把 Planner 简报中的“仿真”描述改为真实机器人。<code>evaluate/trajectory</code> 两个真值 verb 在真机上不实现。</p>
+
+<h3 id="s13-5">13.5 分阶段计划</h3>
+<table>
+  <tr><th>阶段</th><th>目标</th><th>主要工作</th><th>验收标准</th></tr>
+  <tr><td>P0 服务器与仿真</td><td>推理环境可用</td><td><code>setup_gpu_server.sh</code>；下载权重；<code>check-checkpoint</code>；VLA-only 跑 R2R 前 10 集（可选需 MP3D）</td><td>推理正常，单步延迟有记录</td></tr>
+  <tr><td>P1 G1-D 上手</td><td>打通感知与底盘</td><td>PC2 安装 unitree_sdk2_python、teleimager 与 <code>deploy/g1d</code>；<code>navgpt_g1d check</code> 看 odom/scan/相机频率；<code>navgpt_g1d smoke</code> 确认 cmd_vel 与里程计的前后/左右符号；实测相机 FOV、高度</td><td>底盘指令方向与单位正确，相机参数有实测值</td></tr>
+  <tr><td>P2 VLA-only 闭环</td><td>按指令走简单路线</td><td>5090 起 <code>serve_vla.py</code>；机器人侧先 <code>navgpt_g1d run --dry-run</code> 看日志，再以 0.2–0.3 m/s 实跑；用 <code>report</code> 看停顿比例与加速度</td><td>空旷走廊“直走到门口停下”类指令可完成；日志可回放</td></tr>
+  <tr><td>P3 安全监控</td><td>保护性停止</td><td>MID-360/深度点云在机器人前方保护区内检测障碍 → <code>protective_stop</code>；控制回路超时；测量触发到停止的延迟</td><td>软障碍物进入保护区 100% 停车，p95 延迟有测量值（论文参考 180 ms）</td></tr>
+  <tr><td>P4 完整 harness</td><td>Planner + VLA + 工具</td><td>机器人 Environment 服务；里程计与栅格地图；Planner 账号/网关；修改简报</td><td>Planner 能委托、回看关键帧、回到节点、显式结束</td></tr>
+  <tr><td>P5 Runtime 线程化</td><td>重叠执行与事件触发审查</td><td>按附录 B 实现主线程/审查线程/监控线程与优先级；或接入官方 ZEOS 部署代码（发布后）</td><td>复现 Table 10 中“重叠 + 优先级”的趋势</td></tr>
+  <tr><td>P6 优化（可选）</td><td>性能与对齐</td><td>四目 120° 相机；连续执行；在 G1-D 采集数据微调 VLA；板载量化</td><td>按需</td></tr>
+</table>
+
+<h3 id="s13-6">13.6 完整部署工程 <code>deploy/g1d/</code>（navgpt_g1d）</h3>
+<p>底盘统一通过 DDS 话题 <code>rt/cmd_vel_no_limit</code>（<code>geometry_msgs/Twist_</code>）控制；里程计和激光来自 slamware 节点；头部相机来自 teleimager。推理在 RTX 5090 主机上，机器人侧通过 Wi-Fi 调用。工程内部的 README 有完整的上机步骤。</p>
+<table>
+  <tr><th>模块</th><th>运行位置</th><th>内容</th><th>状态</th></tr>
+  <tr><td><code>server/serve_vla.py</code></td><td>5090 主机</td><td>官方 <code>NavGPTVLA(view_num=1)</code> 的单视角服务：<code>commit</code> 关键帧提交、seq 回显、启动预热、可选 attention 实现</td><td><span class="pill todo">待服务器验证</span></td></tr>
+  <tr><td><code>episode.py</code></td><td>机器人侧</td><td>一次任务：推理线程 + 20 Hz 控制线程；保护停止→清空 1 s 后自动恢复；卡住、超时、里程计丢失处理；事件日志与关键帧存档</td><td><span class="pill ok">端到端仿真通过</span></td></tr>
+  <tr><td><code>navigator.py</code> · <code>path.py</code> · <code>tracker.py</code> · <code>pose_buffer.py</code></td><td>机器人侧</td><td>并行推理调度、轨迹拼接、路径跟踪，见 <a href="#s13-8">13.8 节</a></td><td><span class="pill ok">单元测试通过</span></td></tr>
+  <tr><td><code>safety.py</code> · <code>authority.py</code></td><td>机器人侧</td><td>激光减速区与随速度伸缩的停止区、旋转圆检测；运动授权版本与命令过滤</td><td><span class="pill ok">单元测试通过</span></td></tr>
+  <tr><td><code>dds.py</code> · <code>laserscan_idl.py</code></td><td>机器人侧</td><td>按 IP 绑定网卡；odom/scan 订阅；<code>CmdVelStreamer</code> 30 Hz 发布、0.3 s 死人开关、结束零速保持 1 s 后释放通道；补充的 LaserScan 消息定义</td><td><span class="pill ok">发布逻辑测试通过</span> <span class="pill todo">DDS 待真机</span></td></tr>
+  <tr><td><code>camera.py</code> · <code>vla_client.py</code> · <code>robot.py</code></td><td>机器人侧</td><td>teleimager 取帧（单眼、方形 400）；VLA 客户端（兼容 <code>navigation</code> 字段）；真机对象</td><td><span class="pill todo">待真机</span></td></tr>
+  <tr><td><code>sim.py</code></td><td>任意</td><td>仿真底盘（一阶响应）、10 Hz 噪声里程计、360 线激光与移动障碍物、按路线预测的假 VLA</td><td>—</td></tr>
+  <tr><td><code>cli.py</code> · <code>api.py</code> · <code>report.py</code></td><td>机器人侧</td><td><code>run / serve / sim / check / smoke / report</code> 六个子命令；HTTP 控制接口 :8124；日志指标</td><td><span class="pill ok">接口仿真联调通过</span></td></tr>
+  <tr><td><code>config/g1d.yaml</code></td><td>机器人侧</td><td>全部参数，未知键报错；标 verify 的需上机确认</td><td>—</td></tr>
+  <tr><td><code>tests/</code></td><td>任意</td><td><code>cd deploy/g1d &amp;&amp; python -m unittest discover -s tests</code></td><td><span class="pill ok">29/29 通过</span></td></tr>
+</table>
+<pre><code># 5090 主机
+CHECKPOINT=models/NavGPT3-8B GPU=0 deploy/g1d/scripts/start_vla_server.sh
+
+# 机器人侧（PC2）
+cd deploy/g1d
+python -m navgpt_g1d sim --route L --crossing                 # 不接机器人的全链路仿真
+python -m navgpt_g1d check --config config/g1d.yaml           # 传感器频率、相机、VLA 连通
+python -m navgpt_g1d smoke --config config/g1d.yaml           # 底盘/里程计方向符号
+python -m navgpt_g1d run --config config/g1d.yaml --dry-run --instruction "..."
+python -m navgpt_g1d run --config config/g1d.yaml --instruction "Walk forward and stop at the door."
+python -m navgpt_g1d report logs/&lt;时间戳&gt;
+scripts/start_robot.sh                                        # 常驻：POST /episode、/stop，GET /status</code></pre>
+<p>仿真全链路结果（多线程、真实时间、v_max 0.3 m/s）：L 形 5.5 m 路线含一次行人横穿，用时 29.4 s 到达，终点误差约 3 cm。正常行驶阶段停顿比例 0.5%，最大加速度 0.60 m/s²，最大角加速度 1.2 rad/s²，都在限幅上；保护停止 3.0 s，恢复等待 1.2 s。S 形路线 23.2 s 到达，平均 0.28 m/s，没有停顿；共 34 次推理，其中 17 帧提交进 VLA 历史。</p>
+<div class="callout"><b>指令语言</b>模型只在英文指令上评测过，真机测试先用英文；如果需要中文，可让 Planner 或一个翻译步骤把中文转成英文再交给 VLA。</div>
+
+<h3 id="s13-7">13.7 风险与待确认项</h3>
+<table>
+  <tr><th>风险 / 未知</th><th>影响</th><th>应对</th></tr>
+  <tr><td>官方 runtime（ZEOS）未开源</td><td>无法直接复用论文的真机代码</td><td>自行实现最小 runtime；关注官方仓库发布</td></tr>
+  <tr><td>sim-to-real：模型只在 Habitat 上训练评测，模型卡明确说其他机器人需要自己的尺度与测试</td><td>真实场景成功率未知；论文 Go2 上 VLA-only 仅 60% SR</td><td>从简单走廊场景开始；记录失败；必要时在 G1-D 采集数据微调</td></tr>
+  <tr><td>头部相机 FOV、畸变、曝光未知</td><td>输入分布偏移</td><td>实测；必要时去畸变或换 120° 广角相机</td></tr>
+  <tr><td>单视角下 codec 基本不起作用（ρ≈0.98）</td><td>失去该增益；也少了侧后方信息</td><td>四目相机方案</td></tr>
+  <tr><td>G1-D 里程计话题未确认</td><td>影响阶段 4 的地图与回退</td><td>DDS 发现；备选激光里程计</td></tr>
+  <tr><td>差速转向较慢（0.6 rad/s），连续跟踪与仿真瞬移不同</td><td>转弯处偏差</td><td>调 <code>tracker.w_max</code>、<code>lookahead_*</code>、<code>rotate_enter/exit</code>；用 <code>report</code> 看拼接偏差</td></tr>
+  <tr><td>Wi-Fi 延迟抖动</td><td>反应变慢</td><td>有线或 5 GHz 专用 AP；记录 <code>infer_s</code> 与往返时间；超时即停</td></tr>
+  <tr><td>Planner 依赖云端模型（GPT-6 Astra / Claude Opus 5）</td><td>网络可达性、费用（约 $0.4/episode）</td><td>Claude 运行时支持 Bedrock/Vertex/兼容网关；VLA-only 阶段不需要</td></tr>
+  <tr><td>许可证</td><td>权重 AGPL-3.0，代码 Apache-2.0，数据集各自条款</td><td>商用或对外提供服务前做合规评估</td></tr>
+  <tr><td>玻璃门、动态行人、低矮障碍</td><td>RGB VLA 难以感知</td><td>依赖雷达/深度/碰撞传感器的保护层</td></tr>
+</table>
+
+<h3 id="s13-8">13.8 推理与执行并行设计（消除走走停停）</h3>
+<p>stop-and-go 每走约 0.3 m 就要经历“推理等待 → 加速 → 减速到零 → 对齐朝向 → 零速保持”，平均速度很低，看起来一卡一卡。并行方案让底盘始终沿最新预测出的路径行驶，推理在后台不断刷新这条路径。</p>
+
+<h4>线程与数据流（全部在 PC2 上，无线只传“帧 + 位姿”上行、“8 个航点”下行）</h4>
+<table>
+  <tr><th>线程</th><th>频率</th><th>职责</th></tr>
+  <tr><td>DDS 回调</td><td>odom 约 10 Hz</td><td>里程计 → <code>PoseBuffer</code>（保留 5 s 历史，支持任意时刻插值、按上次指令航迹推算）</td></tr>
+  <tr><td>推理线程</td><td>上一次回复一到就发下一次</td><td>取最新帧 → 用“拍照时刻”的位姿打包 → <code>/act</code>（带 seq 和 commit）→ 回复到达后拼接进参考路径</td></tr>
+  <tr><td>控制主线程</td><td>20 Hz</td><td>纯追踪跟踪参考路径 → 运动授权过滤 → <code>rt/cmd_vel_no_limit</code>；从不等待推理</td></tr>
+</table>
+
+<h4>两次推理结果的接续性</h4>
+<ol>
+  <li><b>按拍照时刻锚定</b>：VLA 输出的航点是相对“拍照那一刻”的机器人坐标系，所以要用 <code>PoseBuffer.at(t_capture)</code> 的位姿转到里程计坐标系，而不是用回复到达时的位姿。这样无论无线延迟多大，路径在世界坐标里都是对的。</li>
+  <li><b>序号与过期</b>：每个请求带递增 seq。迟到的旧回复（seq 小于已应用的）直接丢弃，拍照超过 3 s 的回复也丢弃。</li>
+  <li><b>裁掉已走过的部分</b>：把机器人投影到新路径上，丢掉投影点之前的部分（推理期间机器人已经走过去了）。如果机器人已经越过整条新路径，就平滑减速。</li>
+  <li><b>在航向空间过渡</b>：在 <code>blend_m</code>=0.5 m 的弧长内，切向角从旧路径按 smoothstep 过渡到新路径，然后从机器人位置积分出路径。最初试过直接对位置插值，在“新预测与旧路径夹角 29°、推理期间走了 0.4 m”的测试中，路径航向会冲到 66°，每 5 cm 折转 16°；改为航向插值后，降到每 5 cm 5.7°。</li>
+  <li><b>终点仍对准 VLA</b>：机器人此刻不在新预测的起点上（推理期间走开了），由此产生的终点误差沿整条路径用 smoothstep 权重平摊。最终路径从机器人出发，终点正好落在 VLA 预测的位置，中途不急转。</li>
+  <li><b>视觉历史间距</b>：训练数据里历史帧大致按 0.25 m / 15° 一帧。只有当机器人相对上一次提交的帧移动 ≥ 0.25 m 或转动 ≥ 15° 时才 <code>commit=true</code>，其余请求只把这一帧当作“当前观测”，预测完就从历史里移除（服务端 <code>act_without_commit</code>）。这样提高推理频率不会把历史帧挤得过密。</li>
+</ol>
+
+<h4>轨迹平滑性</h4>
+<ul>
+  <li><b>纯追踪</b>：前视距离 = max(0.35 m, 1.0 s × 当前速度)，前视点落在过渡段里，所以控制指令天然经过平滑。</li>
+  <li><b>三重限速</b>：曲率限速（|vyaw| ≤ w_max）、剩余路径刹停限速 v ≤ √(2·a_dec·剩余长度)、最大速度；只在剩余路径真正快用完时才减速。</li>
+  <li><b>加速度限幅</b>：v 加速 0.4 m/s²、减速 0.6 m/s²，vyaw 1.2 rad/s²。</li>
+  <li><b>中间航点不停、不对齐朝向</b>：只有连续两次到达判定后的最终路径，才减速停车并对齐朝向。</li>
+  <li><b>原地转向带滞回</b>：方位角大于 1.0 rad 才进入原地转，小于 0.35 rad 才退出，避免在两种模式间来回抖动。</li>
+  <li><b>无线断供</b>：1.5 s 没收到有效回复就限速到 0.1 m/s，3 s 停车；里程计超过 0.5 s 不更新触发保护停止；急停仍走运动授权，不受平滑影响。</li>
+</ul>
+
+<h4>离线闭环仿真结果（<code>tests/test_navigator_sim.py</code>）</h4>
+<p>测试设置：L 形路线 5.5 m；模拟 VLA 按拍照时刻的真实位姿给出 8 个航点（间距 0.15 m，带噪声）；推理往返延迟 0.4–1.2 s，有 8% 概率出现 2.5 s 无线卡顿；里程计 10 Hz，控制 20 Hz，v_max 0.3 m/s。</p>
+<table>
+  <tr><th>随机种子</th><th class="num">0</th><th class="num">1</th><th class="num">2</th><th class="num">3</th><th class="num">4</th><th class="num">5</th></tr>
+  <tr><td>并行方案用时 (s)</td><td class="num">26.0</td><td class="num">21.9</td><td class="num">22.4</td><td class="num">21.6</td><td class="num">27.6</td><td class="num">24.1</td></tr>
+  <tr><td>并行方案平均速度 (m/s)</td><td class="num">0.24</td><td class="num">0.27</td><td class="num">0.27</td><td class="num">0.26</td><td class="num">0.25</td><td class="num">0.26</td></tr>
+  <tr><td>stop-and-go 用时 (s)</td><td class="num">59.1</td><td class="num">59.5</td><td class="num">61.6</td><td class="num">56.8</td><td class="num">55.3</td><td class="num">57.5</td></tr>
+</table>
+<p>只要预测还在到达，就没有一次停顿（低于 0.05 m/s 的比例为 0%）；加速度始终在限幅内。种子 0 和 4 中出现了连续的 2.5 s 卡顿，机器人按看门狗设计先减速再停，恢复后继续。注意：表中的 stop-and-go 基线已经去掉了零速保持和中间朝向对齐，你现有实现每步还多约 1–2 s，实际差距会更大。这只是运动学仿真，真实的 VLA 输出抖动和底盘响应都要上机验证。</p>
+
+<h4>对应文件</h4>
+<table>
+  <tr><th>文件</th><th>内容</th></tr>
+  <tr><td><code>navgpt_g1d/pose_buffer.py</code></td><td>位姿历史：插值、航迹推算</td></tr>
+  <tr><td><code>navgpt_g1d/path.py</code></td><td>预测锚定、投影、裁剪、航向空间拼接、终点误差分摊</td></tr>
+  <tr><td><code>navgpt_g1d/tracker.py</code></td><td>纯追踪 + 三重限速 + 加速度限幅 + 原地转滞回</td></tr>
+  <tr><td><code>navgpt_g1d/navigator.py</code></td><td>无线程的调度逻辑：seq、过期、关键帧提交、到达判定、断供处理、保护停止后的恢复</td></tr>
+  <tr><td><code>navgpt_g1d/episode.py</code></td><td>任务运行器（推理线程 + 20 Hz 控制线程），JSONL 事件日志</td></tr>
+  <tr><td><code>navgpt_g1d/dds.py</code></td><td>slamware 里程计与激光订阅、<code>rt/cmd_vel_no_limit</code> 30 Hz 发布</td></tr>
+  <tr><td><code>config/g1d.yaml</code></td><td>全部参数</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s14">14. 本项目目录结构</h2>
+<div class="tree">NavGPT-3_ws/
+├── README.md                         工作区索引（从这里开始）
+├── docs/
+│   ├── NavGPT-3_详细解读与G1-D部署方案.html   ← 本文档
+│   ├── assets/                       论文插图（teaser / runtime_sequence / codec_measured）
+│   ├── papers/NavGPT-3_arXiv_2610.10787.pdf
+│   └── web/                          网页存档：论文全文、README、项目页与模型卡、G1-D 资料
+├── code/                             上游仓库（只读，不在此修改）
+│   ├── NavGPT-3/                     官方代码
+│   ├── unitree_sdk2/                 宇树 C++ SDK（含 G1-D AgvClient 与示例）
+│   ├── unitree_sdk2_python/          宇树 Python SDK
+│   └── teleimager/                   宇树图像服务
+├── deploy/g1d/                       G1-D 完整部署工程（navgpt_g1d，见其 README.md）
+│   ├── navgpt_g1d/                   episode · navigator · path · tracker · pose_buffer · geometry
+│   │                                 safety · authority · dds · laserscan_idl · camera · vla_client
+│   │                                 robot · sim · api · cli · report · config
+│   ├── server/serve_vla.py           5090 主机上的单视角 VLA 服务
+│   ├── scripts/                      start_vla_server.sh · start_robot.sh
+│   ├── config/g1d.yaml
+│   ├── tests/
+│   └── pyproject.toml
+├── scripts/                          setup_gpu_server.sh · download_weights.sh
+├── models/                           模型权重（在 GPU 服务器下载，不入库）
+└── data/                             MP3D / R2R-CE / RxR-CE 数据（不入库）</div>
+<p>约定：<code>code/</code> 下保持上游原样，方便 <code>git pull</code> 跟进官方更新（尤其是将来的 Unitree 部署代码）；所有自研改动放在 <code>deploy/</code>；大文件（权重、数据、日志）不入版本库。</p>
+
+<!-- ============================================================ -->
+<h2 id="s15">15. 参考文献与链接</h2>
+<ol>
+  <li>Zhou, G., Hong, Y., Zhang, J., et al. <i>NavGPT-3: Harnessing Context in a Hierarchical Navigation Runtime.</i> arXiv:2610.10787, 2026. <a href="https://arxiv.org/abs/2610.10787">arxiv.org/abs/2610.10787</a></li>
+  <li>Zhou, G., Hong, Y., Wu, Q. <i>NavGPT: Explicit Reasoning in Vision-and-Language Navigation with Large Language Models.</i> AAAI 2024.</li>
+  <li>Zhou, G., Hong, Y., Wang, Z., Wang, X. E., Wu, Q. <i>NavGPT-2: Unleashing Navigational Reasoning Capability for Large Vision-Language Models.</i> ECCV 2024.</li>
+  <li>Krantz, J., et al. <i>Beyond the Nav-Graph: Vision-and-Language Navigation in Continuous Environments.</i> ECCV 2020.</li>
+  <li>Ku, A., et al. <i>Room-Across-Room: Multilingual VLN with Dense Spatiotemporal Grounding.</i> EMNLP 2020.</li>
+  <li>Qwen Team. <i>Qwen-RobotNav Technical Report.</i> arXiv:2606.18112, 2026（codec 的位置分配基线、板载 FP8 方案来源）。</li>
+  <li>Qiao, Y., et al. <i>Open-Nav.</i> ICRA 2025（消融用 R2R-CE 100 集子集）。</li>
+  <li>官方代码 <a href="https://github.com/metacognitionai/NavGPT-3">github.com/metacognitionai/NavGPT-3</a> · 项目页 <a href="https://metacognitionai.github.io/NavGPT3/">metacognitionai.github.io/NavGPT3</a></li>
+  <li>权重 <a href="https://huggingface.co/Metacognition-AI/NavGPT3-8B">Metacognition-AI/NavGPT3-8B</a> · <a href="https://huggingface.co/Metacognition-AI/NavGPT3-4B">NavGPT3-4B</a></li>
+  <li>宇树 G1-D：<a href="https://www.unitree-robot.com/cn/G1-D/">产品页</a> · <a href="https://support.unitree.com/home/zh/G1D_Developer">开发者文档</a> · <a href="https://github.com/unitreerobotics/unitree_sdk2">unitree_sdk2</a> · <a href="https://github.com/unitreerobotics/unitree_sdk2_python">unitree_sdk2_python</a> · <a href="https://github.com/unitreerobotics/teleimager">teleimager</a></li>
+</ol>
+</main>
+</body>
+</html>
