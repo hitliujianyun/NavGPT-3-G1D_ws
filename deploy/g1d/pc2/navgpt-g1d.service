@@ -1,0 +1,22 @@
+[Unit]
+Description=navgpt_g1d robot API (NavGPT-3 VLA navigation over Wi-Fi)
+After=network-online.target g1d-guard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unitree
+EnvironmentFile=/opt/navgpt_g1d/pc2/navgpt_g1d.env
+WorkingDirectory=/opt/navgpt_g1d
+ExecStart=/bin/bash -c 'exec "$NAVGPT_G1D_PYTHON" -m navgpt_g1d serve --config "$NAVGPT_G1D_CONFIG"'
+Restart=on-failure
+RestartSec=2
+# g1d_ws pins its processes to cores 2-7; keep the 20 Hz control loop off them.
+CPUAffinity=1
+Nice=-2
+# SIGINT/SIGTERM both stop a running episode, zero the base and release it.
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

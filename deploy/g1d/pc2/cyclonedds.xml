@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CYCLONEDDS_URI=file:///opt/navgpt_g1d/pc2/cyclonedds.xml (pc2/navgpt_g1d.env sets it).
+     unitree_sdk2py passes its own interface setting (config: dds.interface / dds.interface_ip);
+     this file pins the same robot-LAN interface for any other CycloneDDS participant in the
+     process (writer discovery) and keeps DDS off wlan0. Same settings as g1d_ws. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="eth0" priority="default" multicast="default"/>
+      </Interfaces>
+    </General>
+    <Internal>
+      <SocketReceiveBufferSize min="4MB"/>
+    </Internal>
+  </Domain>
+</CycloneDDS>
