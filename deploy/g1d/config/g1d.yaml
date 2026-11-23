@@ -1,0 +1,93 @@
+# navgpt_g1d robot-side configuration. Runs on the robot LAN (PC2 recommended);
+# the VLA server is the RTX 5090 host. Keys marked "verify" must be checked on the robot.
+# Unknown keys are rejected with the list of valid ones.
+
+dds:
+  domain_id: 0
+  interface: null                  # NIC name, e.g. eth0 ...
+  interface_ip: null               # ... or, preferred, its 192.168.123.x address (verify)
+
+topics:
+  odom: rt/slamware_ros_sdk_server_node/odom
+  scan: rt/slamware_ros_sdk_server_node/scan
+  cmd_vel: rt/cmd_vel_no_limit
+
+base:
+  publish_hz: 30                   # /cmd_vel_no_limit publish rate
+  cmd_timeout_s: 0.3               # deadman: older commands are published as zero
+  zero_hold_s: 1.0                 # zero velocity after an episode, then the channel is released
+  cmd_x_sign: 1.0                  # verify with `python -m navgpt_g1d smoke`
+  cmd_yaw_sign: 1.0
+  odom_yaw_sign: 1.0
+
+camera:                            # Unitree teleimager on PC2
+  host: 192.168.123.164
+  port: 55555
+  binocular: true                  # left|right side by side, 480x1280
+  eye: left
+  out_size: 400                    # square, as in training; also keeps the Wi-Fi upload small
+  stale_after_s: 0.3
+  latency_s: 0.06                  # verify: capture-to-receipt delay
+
+vla:                               # server/serve_vla.py on the RTX 5090 host
+  url: http://192.168.123.200:8100 # verify
+  timeout_s: 4.0
+  jpeg_quality: 85
+
+tracker:
+  v_max: 0.3                       # m/s; keep <= keyframe_m x inference rate
+  w_max: 0.5                       # rad/s
+  a_max: 0.4                       # m/s^2 speeding up
+  a_dec: 0.6                       # m/s^2 slowing down
+  alpha_max: 1.2                   # rad/s^2
+  lookahead_min: 0.35              # m
+  lookahead_time: 1.0              # s; lookahead = max(min, time x speed)
+  rotate_enter: 1.0                # rad; turn in place above this bearing ...
+  rotate_exit: 0.35                # ... until below this one
+  k_rotate: 1.5
+  goal_tol: 0.10                   # m, final stop only
+  yaw_tol: 0.10                    # rad, final stop only
+  min_path_m: 0.08                 # shorter predictions are pure rotations
+
+navigator:
+  blend_m: 0.5                     # heading blend between consecutive predictions
+  ds: 0.05
+  keyframe_m: 0.25                 # commit a frame to the VLA history every 0.25 m ...
+  keyframe_rad: 0.2618             # ... or 15 deg, as in training
+  max_reply_age_s: 3.0
+  starve_s: 1.5                    # no accepted reply for this long: cap speed ...
+  stop_s: 3.0                      # ... and for this long: stop
+  starve_speed: 0.1
+  arrival_hits: 2                  # consecutive collapsed predictions that end the episode
+
+safety:
+  enabled: true
+  half_width_m: 0.27               # chassis 525 mm wide
+  margin_m: 0.10
+  front_m: 0.30                    # verify: lidar centre to front bumper
+  stop_dist_m: 0.35                # protective stop inside this (+ speed x react_s)
+  slow_dist_m: 1.20                # speed scaled down inside this
+  react_s: 0.3
+  rotate_radius_m: 0.34            # 666 mm rotation diameter
+  rotate_margin_m: 0.08
+  min_range_m: 0.12                # closer returns are the robot itself
+  lidar_x_m: 0.0                   # verify: lidar mount in the base frame
+  lidar_y_m: 0.0
+  lidar_yaw_rad: 0.0
+  scan_timeout_s: 0.5
+  resume_clear_s: 1.0
+
+episode:
+  control_hz: 20
+  max_time_s: 300
+  max_requests: 2000
+  odom_timeout_s: 0.5
+  stuck_time_s: 4.0
+  stuck_dist_m: 0.05
+  min_request_period_s: 0.0        # 0 = back-to-back requests
+  log_dir: logs
+  save_frames: true
+
+api:
+  host: 0.0.0.0
+  port: 8124
